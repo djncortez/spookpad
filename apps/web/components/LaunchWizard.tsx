@@ -176,7 +176,10 @@ export function LaunchWizard() {
       }, { draftId: draft, costume, imageBase64: image.base64, feeLamports: settings.costume_fee_lamports, treasury: publicEnv.treasury });
     } catch (e) {
       // the server said no for good, or the RPC node refused the fee so it was never sent: nothing to wait for
-      if (isDefinitive(e) || e instanceof NotSent) resolvePayment(mine, w);
+      if (isDefinitive(e) || e instanceof NotSent) {
+        resolvePayment(mine, w);
+        void refresh().catch(() => {}); // e.g. paid but summoning paused: show the costume with its free retry
+      }
       throw e;
     }
     await afterCostume(g, mine, w);
