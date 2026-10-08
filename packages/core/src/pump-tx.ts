@@ -18,7 +18,11 @@ export const BUY_EXACT_SOL_IN = anchor("buy_exact_sol_in");
 const COMPUTE_BUDGET = "ComputeBudget111111111111111111111111111111";
 const ALLOWED_PROGRAMS = new Set([PUMP_PROGRAM, COMPUTE_BUDGET, SYSTEM_PROGRAM]);
 // PumpPortal may add a small service-fee transfer; more than this in plain transfers is refused
+// (the transfer's destination is deliberately unchecked: PumpPortal's service-fee wallet isn't ours to pin, so the amount is capped instead)
 export const MAX_EXTRA_TRANSFER_LAMPORTS = 10_000_000n;
+// Priority fee = compute unit limit x unit price. The live PumpPortal create pays 0.0005 SOL; refuse anything above 0.005 SOL.
+export const MAX_PRIORITY_FEE_LAMPORTS = 5_000_000n;
+const DEFAULT_UNITS_PER_INSTRUCTION = 200_000n; // what Solana assumes per instruction when no SetComputeUnitLimit is sent
 
 export interface CreateArgs {
   version: 1 | 2;
@@ -54,7 +58,8 @@ export function decodeCreateArgs(data: Uint8Array): CreateArgs {
     const len = view.getUint32(pos, true);
     pos += 4;
     need(len);
-    const s = new TextDecoder().decode(data.slice(pos, pos + len));
+    let s: string;
+    try { s = new TextDecoder("utf-8", { fatal: true }).decode(data.slice(pos, pos + len)); } catch { throw new Error("Create instruction has text that isn't valid."); }
     pos += len;
     return s;
   };
@@ -84,9 +89,23 @@ export function checkCreateTx(tx: DecodedTx, want: ExpectedCreate):
 
   let create: CreateArgs | null = null;
   let extra = 0n;
+  let limit: bigint | null = null; // SetComputeUnitLimit units
+  let price: bigint | null = null; // SetComputeUnitPrice micro-lamports per unit
+  let others = 0n; // instructions that aren't ComputeBudget
   for (const ix of tx.instructions) {
     const program = programOf(tx, ix);
     if (!ALLOWED_PROGRAMS.has(program)) return fail(`The transaction calls an unexpected program (${program}).`);
+    if (program === COMPUTE_BUDGET) {
+      // only SetComputeUnitLimit (2, u32) and SetComputeUnitPrice (3, u64), each once, with exact lengths
+      const bad = fail("The transaction has an unexpected compute-budget instruction.");
+      const d = ix.data;
+      const dv = new DataView(d.buffer, d.byteOffset, d.byteLength);
+      if (d[0] === 2 && d.length === 5 && limit === null) limit = BigInt(dv.getUint32(1, true));
+      else if (d[0] === 3 && d.length === 9 && price === null) price = dv.getBigUint64(1, true);
+      else return bad;
+      continue;
+    }
+    others++;
     if (program === SYSTEM_PROGRAM) {
       const view = new DataView(ix.data.buffer, ix.data.byteOffset, ix.data.byteLength);
       if (ix.data.length !== 12 || view.getUint32(0, true) !== 2) return fail("The transaction has an unexpected system instruction.");
@@ -94,13 +113,13 @@ export function checkCreateTx(tx: DecodedTx, want: ExpectedCreate):
       extra += view.getBigUint64(4, true);
       continue;
     }
-    if (program !== PUMP_PROGRAM) continue;
     if (isCreateData(ix.data)) {
       if (create) return fail("The transaction creates more than one coin.");
       let args: CreateArgs;
       try { args = decodeCreateArgs(ix.data); } catch (e) { return fail((e as Error).message); }
+      if (args.version !== 2) return fail("This is an old-style create; SpookPad needs create_v2.");
       if (accountOf(tx, ix, 0) !== want.mint) return fail("The transaction creates a different mint.");
-      if (accountOf(tx, ix, args.version === 2 ? 5 : 7) !== want.creator) return fail("The transaction's creating wallet isn't yours.");
+      if (accountOf(tx, ix, 5) !== want.creator) return fail("The transaction's creating wallet isn't yours.");
       create = args;
       continue;
     }
@@ -108,6 +127,8 @@ export function checkCreateTx(tx: DecodedTx, want: ExpectedCreate):
     return fail("The transaction does another pump.fun action.");
   }
   if (!create) return fail("The transaction doesn't create a coin.");
+  const units = limit ?? DEFAULT_UNITS_PER_INSTRUCTION * others;
+  if (price !== null && (units * price + 999_999n) / 1_000_000n > MAX_PRIORITY_FEE_LAMPORTS) return fail("The transaction's network fee is too high.");
   if (create.name !== want.name || create.symbol !== want.symbol) return fail("The coin name or ticker doesn't match.");
   if (create.uri !== want.uri) return fail("The coin's metadata isn't SpookPad's.");
   if (create.creator !== want.creator) return fail("The creator fees would go to another wallet.");

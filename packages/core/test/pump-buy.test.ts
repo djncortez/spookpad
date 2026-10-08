@@ -9,8 +9,8 @@ import {
   ASSOCIATED_TOKEN_PROGRAM, associatedTokenAddress, buildLaunchTx, BUYBACK_FEE_RECIPIENTS, devBuyInstructions, FEE_RECIPIENTS, findProgramAddress,
   pickRecipient, PUMP_FEE_PROGRAM, pumpBuyAccounts, TOKEN_2022_PROGRAM,
 } from "../src/pump-buy";
-import { BUY_EXACT_SOL_IN, checkCreateTx, PUMP_PROGRAM } from "../src/pump-tx";
-import { decodeTransaction, loadedAddresses, SYSTEM_PROGRAM, type LookupTables } from "../src/solana-tx";
+import { BUY_EXACT_SOL_IN, checkCreateTx, CREATE_V1, CREATE_V2, PUMP_PROGRAM } from "../src/pump-tx";
+import { decodeTransaction, encodeMessage, loadedAddresses, serialize, SYSTEM_PROGRAM, type DecodedTx, type LookupTables } from "../src/solana-tx";
 
 const COMPUTE_BUDGET = "ComputeBudget111111111111111111111111111111";
 
@@ -73,6 +73,7 @@ describe("devBuyInstructions", () => {
 
   test("refuses a zero buy and fee recipients pump.fun doesn't list", () => {
     expect(() => devBuyInstructions({ ...buy, lamports: 0n })).toThrow(/positive/);
+    expect(() => devBuyInstructions({ ...buy, lamports: 2n ** 64n })).toThrow(/out of range/);
     expect(() => devBuyInstructions({ ...buy, feeRecipient: trader })).toThrow(/fee recipient/);
     expect(() => devBuyInstructions({ ...buy, buybackFeeRecipient: FEE_RECIPIENTS[0] })).toThrow(/buyback/);
   });
@@ -80,6 +81,32 @@ describe("devBuyInstructions", () => {
   test("pickRecipient prefers an address a lookup table already holds", () => {
     expect(pickRecipient(FEE_RECIPIENTS, [trader, FEE_RECIPIENTS[5]])).toBe(FEE_RECIPIENTS[5]);
     expect(pickRecipient(FEE_RECIPIENTS, [])).toBe(FEE_RECIPIENTS[0]);
+  });
+});
+
+describe("buildLaunchTx defends its own preconditions", () => {
+  const trader = Keypair.generate().publicKey.toBase58();
+  const mint = Keypair.generate().publicKey.toBase58();
+  const str = (v: string) => { const b = new TextEncoder().encode(v); const out = new Uint8Array(4 + b.length); new DataView(out.buffer).setUint32(0, b.length, true); out.set(b, 4); return [...out]; };
+  const create = (v: 1 | 2) => new Uint8Array([...(v === 2 ? CREATE_V2 : CREATE_V1), ...str("N"), ...str("S"), ...str("U"), ...new PublicKey(trader).toBytes()]);
+  // keys: 0 trader, 1 mint, 2 pump program; the create's account 0 is `mintIndex`
+  const created = (v: 1 | 2, mintIndex = 1): DecodedTx => decodeTransaction(serialize([new Uint8Array(64), new Uint8Array(64)], encodeMessage({
+    version: 0, header: { requiredSignatures: 2, readonlySigned: 0, readonlyUnsigned: 1 }, staticKeys: [trader, mint, PUMP_PROGRAM],
+    recentBlockhash: new PublicKey(new Uint8Array(32).fill(7)).toBase58(),
+    instructions: [{ programIndex: 2, accounts: [mintIndex, 0], data: create(v) }],
+  })));
+  const parts = { trader, mint, devBuyLamports: 0n, treasury: trader, launchFeeLamports: 0n };
+  test("builds when the preconditions hold", () => {
+    expect(buildLaunchTx(created(2), {}, parts).length).toBeGreaterThan(0);
+  });
+  test("throws when the trader isn't the fee payer", () => {
+    expect(() => buildLaunchTx(created(2), {}, { ...parts, trader: mint })).toThrow(/pay/);
+  });
+  test("throws when the create is for another mint", () => {
+    expect(() => buildLaunchTx(created(2, 0), {}, parts)).toThrow(/mint/);
+  });
+  test("throws when the create isn't v2", () => {
+    expect(() => buildLaunchTx(created(1), {}, parts)).toThrow(/create_v2/);
   });
 });
 

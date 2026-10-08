@@ -10,8 +10,8 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import bs58 from "bs58";
 import { appendInstructions, transferInstruction, type NewInstruction } from "./append-transfer";
 import { utf8 } from "./encoding";
-import { BUY_EXACT_SOL_IN, PUMP_PROGRAM } from "./pump-tx";
-import { SYSTEM_PROGRAM, type DecodedTx, type LookupTables } from "./solana-tx";
+import { BUY_EXACT_SOL_IN, decodeCreateArgs, isCreateData, PUMP_PROGRAM } from "./pump-tx";
+import { accountOf, programOf, SYSTEM_PROGRAM, type DecodedTx, type LookupTables } from "./solana-tx";
 
 export const PUMP_FEE_PROGRAM = "pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ";
 export const TOKEN_2022_PROGRAM = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
@@ -101,7 +101,8 @@ export interface DevBuy {
 // [createIdempotent of the trader's token account, buy_exact_sol_in]. min_tokens_out is 1: the curve is brand new in
 // this same transaction, so the price can't move against the trader before the buy.
 export function devBuyInstructions(b: DevBuy): NewInstruction[] {
-  if (b.lamports <= 0n || b.lamports >= 2n ** 64n) throw new Error("The dev buy must be positive.");
+  if (b.lamports <= 0n) throw new Error("The dev buy must be positive.");
+  if (b.lamports >= 2n ** 64n) throw new Error("The dev buy amount is out of range.");
   if (!FEE_RECIPIENTS.includes(b.feeRecipient)) throw new Error("Unknown pump.fun fee recipient.");
   if (!BUYBACK_FEE_RECIPIENTS.includes(b.buybackFeeRecipient)) throw new Error("Unknown pump.fun buyback fee recipient.");
   const a = pumpBuyAccounts(b.mint, b.trader);
@@ -144,8 +145,13 @@ export interface LaunchParts {
 
 // The whole unsigned launch transaction: PumpPortal's create-only transaction (already passed checkCreateTx), then
 // SpookPad's dev buy when there is one, then the launch fee when there is one. Throws when it can't be built or would
-// be over 1232 bytes.
+// be over 1232 bytes. Also throws unless the trader pays for the transaction and its one pump.fun create is a create_v2
+// of `p.mint` (checkCreateTx guarantees this; it is re-checked here because the buy is built from `p`, not from the create).
 export function buildLaunchTx(created: DecodedTx, tables: LookupTables, p: LaunchParts): Uint8Array {
+  if (p.trader !== created.staticKeys[0]) throw new Error("The trader must pay for the launch transaction.");
+  const createIx = created.instructions.find((ix) => programOf(created, ix) === PUMP_PROGRAM && isCreateData(ix.data));
+  if (!createIx || decodeCreateArgs(createIx.data).version !== 2) throw new Error("The launch transaction must hold a pump.fun create_v2.");
+  if (accountOf(created, createIx, 0) !== p.mint) throw new Error("The launch transaction creates a different mint.");
   const added: NewInstruction[] = [];
   if (p.devBuyLamports > 0n) {
     const inTables = Object.values(tables).flat();
