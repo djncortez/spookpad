@@ -8,9 +8,11 @@
   ],
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p apps/web/tsconfig.json --noEmit",
     "build:functions": "node scripts/build-functions.mjs",
-    "deploy:functions": "node scripts/build-functions.mjs && npx supabase functions deploy --no-verify-jwt --use-api"
+    "deploy:functions": "node scripts/build-functions.mjs && npx supabase functions deploy --no-verify-jwt --use-api",
+    "dev": "node --env-file-if-exists=.env scripts/build-admin.mjs && npm run dev -w apps/web",
+    "build": "node --env-file-if-exists=.env scripts/build-admin.mjs && npm run build -w apps/web"
   },
   "devDependencies": {
     "@types/node": "^22",
