@@ -8,8 +8,13 @@ import { fetchCoin, type GraveCoin } from "@/lib/graveyard";
 import { watchMarketCap } from "@/lib/live-mcap";
 import { RevealSlider } from "./RevealSlider";
 
+// A new mint remounts the details, so nothing of the previous coin (details, cap, LIVE badge) is ever shown for it.
 export function CoinView() {
   const mint = useSearchParams().get("mint") ?? "";
+  return <CoinDetails key={mint} mint={mint} />;
+}
+
+function CoinDetails({ mint }: { mint: string }) {
   const [coin, setCoin] = useState<GraveCoin | null | undefined>(undefined);
   const [cap, setCap] = useState<number | undefined>(undefined);
   const [live, setLive] = useState(false);
@@ -21,12 +26,14 @@ export function CoinView() {
     return () => { alive = false; };
   }, [mint]);
 
-  // the $NOOB live engine; closed while the tab is hidden (saves Helius credits), reopened when visible
+  // the $NOOB live engine; never opened or kept open while the tab is hidden (saves Helius credits), opened when visible
   useEffect(() => {
     if (!coin) return;
     let stop: (() => void) | null = null;
     const start = () => {
       stop?.();
+      stop = null;
+      if (document.hidden) return;
       stop = watchMarketCap({ ca: coin.mint, rpcUrl: publicEnv.solanaRpcUrl, onUpdate: (mc, source) => { setCap(mc); setLive(source === "chain"); } });
     };
     const onVisibility = () => { if (document.hidden) { stop?.(); stop = null; } else start(); };

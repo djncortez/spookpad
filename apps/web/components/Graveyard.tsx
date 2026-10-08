@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { publicEnv } from "@/lib/env";
-import { graveyardCaps } from "@/lib/graveyard-caps";
+import { graveyardCaps, newestOnly } from "@/lib/graveyard-caps";
 import { fetchGraveyard, sortCoins, type GraveCoin } from "@/lib/graveyard";
 import { fetchCostumes, type Costume } from "@/lib/public-data";
 import { CoinCard } from "./CoinCard";
@@ -18,23 +18,29 @@ export function Graveyard() {
 
   useEffect(() => {
     let alive = true;
-    const load = () => fetchGraveyard().then((list) => alive && setCoins(list), (e: Error) => alive && setError(e.message));
+    const load = () => fetchGraveyard().then(
+      (list) => { if (alive) { setCoins(list); setError(null); } }, // a good load clears an earlier error
+      (e: Error) => alive && setError(e.message),
+    );
     void load();
     fetchCostumes().then((c) => alive && setCostumes(c)).catch(() => {});
     const timer = setInterval(() => { if (!document.hidden) void load(); }, LIST_MS);
     return () => { alive = false; clearInterval(timer); };
   }, []);
 
+  // keyed on the mints, not the list object: a reload with the same coins doesn't restart the cap reads
+  const mintKey = useMemo(() => (coins ?? []).map((c) => c.mint).join(","), [coins]);
   useEffect(() => {
-    if (!coins?.length) return;
+    if (!mintKey) return;
     let alive = true;
-    const mints = coins.map((c) => c.mint);
-    const read = () => { if (!document.hidden) void graveyardCaps(mints, publicEnv.solanaRpcUrl).then((m) => alive && setCaps(m)); };
+    const mints = mintKey.split(",");
+    const deliver = newestOnly<Record<string, number>>((m) => { if (alive) setCaps(m); });
+    const read = () => { if (!document.hidden) void deliver(graveyardCaps(mints, publicEnv.solanaRpcUrl)); };
     read();
     const timer = setInterval(read, CAPS_MS);
     document.addEventListener("visibilitychange", read);
     return () => { alive = false; clearInterval(timer); document.removeEventListener("visibilitychange", read); };
-  }, [coins]);
+  }, [mintKey]);
 
   const sorted = useMemo(() => (coins ? sortCoins(coins, caps, by) : []), [coins, caps, by]);
   const emoji = (slug: string) => costumes.find((c) => c.slug === slug)?.emoji;

@@ -42,3 +42,26 @@ test("without an RPC URL everything comes from DEX Screener", async () => {
   const caps = await graveyardCaps([mint], "", async () => new Response(JSON.stringify([{ baseToken: { address: mint }, marketCap: 42 }])));
   expect(caps).toEqual({ [mint]: 42 });
 });
+
+test("newestOnly applies answers in request order and drops older ones that arrive late", async () => {
+  const { newestOnly } = await import("../lib/graveyard-caps");
+  const applied: string[] = [];
+  const deliver = newestOnly<string>((v) => applied.push(v));
+  let resolveFirst!: (v: string) => void;
+  const first = deliver(new Promise<string>((r) => { resolveFirst = r; }));
+  await deliver(Promise.resolve("second"));
+  resolveFirst("first (late)");
+  await first;
+  expect(applied).toEqual(["second"]);
+  await deliver(Promise.resolve("third"));
+  expect(applied).toEqual(["second", "third"]);
+});
+
+test("newestOnly swallows a failed read: the last good caps stay", async () => {
+  const { newestOnly } = await import("../lib/graveyard-caps");
+  const applied: number[] = [];
+  const deliver = newestOnly<number>((v) => applied.push(v));
+  await deliver(Promise.resolve(1));
+  await expect(deliver(Promise.reject(new Error("rpc down")))).resolves.toBeUndefined();
+  expect(applied).toEqual([1]);
+});

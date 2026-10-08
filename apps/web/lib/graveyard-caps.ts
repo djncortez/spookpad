@@ -19,6 +19,17 @@ async function solUsd(fetchFn: typeof fetch): Promise<number | null> {
   }
 }
 
+// Delivers only answers newer than the last one applied: a slow read that finishes after a newer one is dropped, and a
+// failed read changes nothing (the last good caps stay).
+export function newestOnly<T>(apply: (value: T) => void): (read: Promise<T>) => Promise<void> {
+  let asked = 0;
+  let applied = 0;
+  return (read) => {
+    const n = ++asked;
+    return read.then((value) => { if (n > applied) { applied = n; apply(value); } }, () => {});
+  };
+}
+
 export async function graveyardCaps(mints: string[], rpcUrl: string, fetchFn: typeof fetch = fetch): Promise<Record<string, number>> {
   const out: Record<string, number> = {};
   const sol = rpcUrl && mints.length ? await solUsd(fetchFn) : null;
