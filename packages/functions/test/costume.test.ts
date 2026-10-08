@@ -39,7 +39,7 @@ function setup(o: { fee?: number; tx?: (id: string) => ParsedTransaction | null;
   const gens = new Map<string, GenerationRow & { stale?: boolean }>();
   const used = new Set<string>();
   const art = new Map<string, Art>();
-  const log = { rpcCalls: [] as unknown[][], aiCalls: 0, alerts: [] as string[], prompts: [] as string[], removed: [] as string[], uploads: [] as string[], expireCalls: 0 };
+  const log = { rpcCalls: [] as unknown[][], aiCalls: 0, alerts: [] as string[], prompts: [] as string[], removed: [] as string[], uploads: [] as string[], expireCalls: 0, expiredClaims: [] as string[] };
   let n = 0;
   let paused = false;
   const deps: CostumeDeps = {
@@ -63,6 +63,15 @@ function setup(o: { fee?: number; tx?: (id: string) => ParsedTransaction | null;
       used.add(sig);
       const g = gens.get(id)!;
       g.state = "paid";
+      return { ...g };
+    },
+    claimExpiredPayment: async (sig, id) => {
+      const g = gens.get(id)!;
+      if (g.state !== "expired") throw new StoreError("not_awaiting");
+      if (used.has(sig)) throw new StoreError("payment_used");
+      used.add(sig);
+      Object.assign(g, { state: "failed", error: "expired_paid" });
+      log.expiredClaims.push(sig);
       return { ...g };
     },
     expireUnpaid: async () => { log.expireCalls++; return o.expire ? o.expire() : []; },
@@ -285,13 +294,15 @@ describe("costume: final-review fixes", () => {
     t.deps.removeArt = async () => { throw new Error("storage down"); };
     expect((await t.startOne()).status).toBe(200);
   });
-  test("paying for an expired costume answers that it expired", async () => {
-    const { startOne, call, gens } = setup();
+  test("paying for an expired costume without a valid payment answers that it expired", async () => {
+    const { startOne, call, gens, log } = setup({ tx: () => feeTx(GEN1, "spookpad:someone-else") });
     await startOne();
     gens.get(GEN1)!.state = "expired";
     expect(await call({ action: "pay", generation_id: GEN1, signature: SIG })).toEqual({
       status: 409, body: { error: "This costume wasn't paid for within an hour, so it expired. Summon it again." },
     });
+    expect(log.expiredClaims).toEqual([]);
+    expect(gens.get(GEN1)!.state).toBe("expired");
   });
   test("while summoning is paused, a payment is kept but no AI attempt starts; the retry works after unpausing", async () => {
     const { startOne, call, log, gens, pause } = setup();
@@ -312,5 +323,52 @@ describe("costume: final-review fixes", () => {
     Object.assign(gens.get(GEN1)!, { state: "generating", attempts: 1, stale: true });
     const r = await call({ action: "retry", generation_id: GEN1 });
     expect(r.body.generation).toMatchObject({ state: "ready", attempts: 2 });
+  });
+});
+
+describe("costume: round 2 (a payment that lands for an expired costume)", () => {
+  const REFUND = "Your payment arrived after this costume expired, so it can't be summoned. The SpookPad team will refund your fee.";
+  test("a valid payment is verified like any other, recorded for a refund, and answered as resolved", async () => {
+    const { startOne, call, gens, log } = setup();
+    await startOne();
+    gens.get(GEN1)!.state = "expired";
+    expect(await call({ action: "pay", generation_id: GEN1, signature: SIG })).toEqual({ status: 409, body: { error: REFUND } });
+    expect(log.rpcCalls[0]).toEqual([SIG, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0, commitment: "confirmed" }]);
+    expect(log.expiredClaims).toEqual([SIG]);
+    expect(gens.get(GEN1)).toMatchObject({ state: "failed", error: "expired_paid" });
+    expect(log.aiCalls).toBe(0);
+    // asking again (another tab, a reload) gets the same answer, without reading the chain again
+    expect(await call({ action: "pay", generation_id: GEN1, signature: SIG })).toEqual({ status: 409, body: { error: REFUND } });
+    expect(log.rpcCalls).toHaveLength(1);
+  });
+  test("the payment is checked against the stored fee and memo", async () => {
+    const { startOne, call, gens, log } = setup();
+    await startOne();
+    Object.assign(gens.get(GEN1)!, { state: "expired", fee_lamports: 2_000_000 }); // the tx pays only 1_000_000
+    expect((await call({ action: "pay", generation_id: GEN1, signature: SIG })).status).toBe(409);
+    expect(gens.get(GEN1)!.state).toBe("expired");
+    expect(log.expiredClaims).toEqual([]);
+  });
+  test("not on Solana yet: 202 waiting as usual", async () => {
+    const { startOne, call, gens } = setup({ tx: () => null });
+    await startOne();
+    gens.get(GEN1)!.state = "expired";
+    expect(await call({ action: "pay", generation_id: GEN1, signature: SIG })).toEqual({ status: 202, body: { status: "waiting" } });
+  });
+  test("a payment already used for another costume is refused", async () => {
+    const t = setup();
+    await t.startOne();
+    t.gens.get(GEN1)!.state = "expired";
+    t.deps.claimExpiredPayment = async () => { throw new StoreError("payment_used"); };
+    expect(await t.call({ action: "pay", generation_id: GEN1, signature: SIG })).toEqual({
+      status: 409, body: { error: "This payment was already used for another costume." },
+    });
+  });
+  test("a costume that expires between the read and the claim is still recorded for a refund", async () => {
+    const t = setup();
+    await t.startOne();
+    t.deps.claimPayment = async (_sig, id) => { t.gens.get(id)!.state = "expired"; throw new StoreError("not_awaiting"); };
+    expect(await t.call({ action: "pay", generation_id: GEN1, signature: SIG })).toEqual({ status: 409, body: { error: REFUND } });
+    expect(t.gens.get(GEN1)).toMatchObject({ state: "failed", error: "expired_paid" });
   });
 });

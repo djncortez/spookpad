@@ -6,6 +6,9 @@
 //      -> 202 { status: "waiting" }   the payment isn't on Solana yet: ask again in 2 s
 //      -> 200 { generation }          paid and summoned ("ready"), or the AI failed ("paid" + error: the retry is free;
 //                                     "failed" after 3 attempts, refunded by the admin)
+//      -> 409 { error }               also when the costume expired (unpaid for an hour): a valid payment that still
+//                                     lands for it is recorded and refunded by the admin (state "failed", error
+//                                     "expired_paid"); the answer says so, and the browser treats it as resolved
 //   { action: "retry", generation_id } -> 200 { generation }   also takes over an attempt stuck "generating" for 3 minutes
 // While summoning is paused (admin or low AI credit) pay and retry answer 409 "paused" and start no AI attempt; a paid
 // costume stays paid, so the free retry works once summoning is back.
@@ -26,6 +29,7 @@ export interface CostumeDeps {
   startGeneration(g: { id: string; wallet: string; draftId: string; costume: string; originalPath: string }): Promise<GenerationRow>;
   loadGeneration(id: string): Promise<GenerationRow | null>;
   claimPayment(signature: string, generationId: string, wallet: string, lamports: number): Promise<GenerationRow>;
+  claimExpiredPayment(signature: string, generationId: string, wallet: string, lamports: number): Promise<GenerationRow>;
   expireUnpaid(): Promise<string[]>; // marks costumes unpaid for an hour expired; returns their originals' paths
   beginAttempt(id: string, wallet: string): Promise<GenerationRow>;
   finishAttempt(id: string, resultPath: string | null, error: string | null): Promise<GenerationRow>;
@@ -43,6 +47,8 @@ export interface CostumeDeps {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/;
+const EXPIRED = "This costume wasn't paid for within an hour, so it expired. Summon it again.";
+const EXPIRED_PAID = "Your payment arrived after this costume expired, so it can't be summoned. The SpookPad team will refund your fee.";
 const FIZZLED = "The costume spell fizzled. Try again — it's free.";
 const STORE_ANSWERS: Record<string, [number, string]> = {
   paused: [409, "Costume summoning is paused right now. Try again soon."],
@@ -145,8 +151,8 @@ async function pay(d: CostumeDeps, wallet: string, body: Record<string, unknown>
   if (!id || !signature) return fail(400, "That isn't a Solana payment.");
   const g = await d.loadGeneration(id);
   if (!g || g.wallet !== wallet) return fail(404, "Costume not found.");
-  if (g.state === "expired") return fail(409, "This costume wasn't paid for within an hour, so it expired. Summon it again.");
-  if (g.state !== "awaiting_payment") return json({ generation: publicGeneration(g) }, 200, cors);
+  if (g.state === "failed" && g.error === "expired_paid") return fail(409, EXPIRED_PAID);
+  if (g.state !== "awaiting_payment" && g.state !== "expired") return json({ generation: publicGeneration(g) }, 200, cors);
 
   let tx: ParsedTransaction | null;
   try {
@@ -159,8 +165,25 @@ async function pay(d: CostumeDeps, wallet: string, body: Record<string, unknown>
   }
   if (!tx) return json({ status: "waiting" }, 202, cors);
   const problem = checkFeePayment(tx, { wallet, treasury: d.treasury, lamports: g.fee_lamports, memo: feeMemo(g.id) });
-  if (problem) return fail(400, problem);
-  const paid = await d.claimPayment(signature, g.id, wallet, g.fee_lamports);
+  if (problem) {
+    if (g.state === "expired") return fail(409, EXPIRED);
+    return fail(400, problem);
+  }
+  // A real payment for an expired costume (it landed, but was never claimed before expire_unpaid ran): its original is
+  // gone, so record it for a refund instead of losing it.
+  const claimExpired = async () => {
+    await d.claimExpiredPayment(signature, g.id, wallet, g.fee_lamports);
+    return fail(409, EXPIRED_PAID);
+  };
+  if (g.state === "expired") return claimExpired();
+  let paid: GenerationRow;
+  try {
+    paid = await d.claimPayment(signature, g.id, wallet, g.fee_lamports);
+  } catch (e) {
+    // expired between the read above and the claim
+    if (e instanceof StoreError && e.code === "not_awaiting" && (await d.loadGeneration(g.id))?.state === "expired") return claimExpired();
+    throw e;
+  }
   return json({ generation: publicGeneration(await summon(d, paid)) }, 200, cors);
 }
 

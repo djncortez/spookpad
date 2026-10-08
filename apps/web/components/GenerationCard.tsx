@@ -23,7 +23,7 @@ export function GenerationCard({ g, costume, selected, onSelect, onRetry, busy }
         {src && <img src={src} alt={`${costume?.label ?? g.costume} costume`} className={`h-full w-full object-cover ${g.result_path ? "" : "opacity-40 grayscale"}`} />}
         {!g.result_path && (
           <span className="absolute inset-0 grid place-items-center p-3 text-center text-sm font-semibold">
-            {g.state === "failed" ? "Failed 3 times. SpookPad will refund your fee." : g.state === "generating" ? (stuck ? "The spell got stuck" : "Brewing…") : "The spell fizzled"}
+            {g.state === "failed" ? (g.error === "expired_paid" ? "Paid after it expired. SpookPad will refund your fee." : "Failed 3 times. SpookPad will refund your fee.") : g.state === "generating" ? (stuck ? "The spell got stuck" : "Brewing…") : "The spell fizzled"}
           </span>
         )}
       </div>

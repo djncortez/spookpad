@@ -75,6 +75,10 @@ export async function loadGeneration(db: SupabaseClient, id: string): Promise<Ge
 export const claimPayment = async (db: SupabaseClient, signature: string, generationId: string, wallet: string, lamports: number) =>
   toGeneration(await call(db, "claim_payment", { p_signature: signature, p_generation: generationId, p_wallet: wallet, p_lamports: lamports }));
 
+// A verified payment for a costume that already expired: recorded, and the costume marked failed ('expired_paid') for a refund.
+export const claimExpiredPayment = async (db: SupabaseClient, signature: string, generationId: string, wallet: string, lamports: number) =>
+  toGeneration(await call(db, "claim_expired_payment", { p_signature: signature, p_generation: generationId, p_wallet: wallet, p_lamports: lamports }));
+
 export const expireUnpaid = async (db: SupabaseClient): Promise<string[]> => call<string[]>(db, "expire_unpaid", {});
 
 export const beginAttempt = async (db: SupabaseClient, id: string, wallet: string) =>

@@ -212,15 +212,40 @@ end $$;
 
 -- Unpaid costumes are expired after an hour so their originals (uploaded to the public bucket before payment) can be
 -- removed: the caller deletes the returned original_path files. An hour is safe: the browser builds the fee transaction
--- right after start, and its blockhash expires in about 90 seconds, so no payment can land an hour later (and
--- claim_payment refuses an expired row with not_awaiting anyway). At most 50 rows per call.
+-- right after start, and its blockhash expires in about 90 seconds, so no payment can land an hour later. A payment that
+-- landed in time but was never claimed (tab closed, a failed "pay" call) is still honoured: claim_expired_payment
+-- records it for a refund (claim_payment refuses an expired row with not_awaiting). At most 50 rows per call.
 create or replace function public.expire_unpaid() returns setof text
 language sql security definer set search_path = public as $$
-  update generations set state = 'expired', updated_at = now()
-  where id in (select id from generations where state = 'awaiting_payment' and created_at < now() - interval '1 hour'
-               order by created_at limit 50 for update skip locked)
-  returning original_path
+  -- the batch is picked once (materialized), so the planner can't re-run the limited subquery per row
+  with batch as materialized (
+    select id from generations where state = 'awaiting_payment' and created_at < now() - interval '1 hour'
+    order by created_at limit 50 for update skip locked)
+  update generations g set state = 'expired', updated_at = now()
+  from batch
+  where g.id = batch.id and g.state = 'awaiting_payment'
+  returning g.original_path
 $$;
+
+-- A verified fee payment for a costume that had already expired (its original is gone, so it can't be summoned):
+-- record the payment (one use per signature) and mark the costume failed with error 'expired_paid', so it shows in the
+-- admin's refund list.
+create or replace function public.claim_expired_payment(p_signature text, p_generation uuid, p_wallet text, p_lamports bigint)
+returns generations language plpgsql security definer set search_path = public as $$
+declare g generations;
+begin
+  select * into g from generations where id = p_generation for update;
+  if not found or g.wallet <> p_wallet then raise exception 'not_found'; end if;
+  if g.state <> 'expired' then raise exception 'not_awaiting'; end if;
+  begin
+    insert into costume_payments (signature, generation_id, wallet, lamports) values (p_signature, p_generation, p_wallet, p_lamports);
+  exception when unique_violation then
+    raise exception 'payment_used';
+  end;
+  update generations set state = 'failed', error = 'expired_paid', updated_at = now()
+  where id = p_generation and state = 'expired' returning * into g;
+  return g;
+end $$;
 
 -- A third attempt whose function died (no update for 3 minutes) and that nobody retried: mark it failed so the admin
 -- sees it as refundable (begin_attempt does the same when the trader retries it). Returns how many rows changed.
@@ -402,6 +427,7 @@ grant execute on function
   public.begin_attempt(uuid, text),
   public.finish_attempt(uuid, text, text),
   public.expire_unpaid(),
+  public.claim_expired_payment(text, uuid, text, bigint),
   public.fail_stale_attempts(),
   public.begin_launch(text, text, uuid, text, text, text, text, text, bigint, text, bigint),
   public.confirm_launch(text, text, text),

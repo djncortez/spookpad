@@ -189,3 +189,41 @@ describe("final-review fixes", () => {
     expect((await db.sql`select state, refunded_at is not null as refunded from generations where id = ${g.id}`)[0]).toEqual({ state: "failed", refunded: true });
   });
 });
+
+describe("round 2: a payment that lands for an expired costume", () => {
+  const expired = async () => {
+    const g = await start(W2);
+    await db.sql`update generations set created_at = now() - interval '61 minutes' where id = ${g.id}`;
+    await db.sql`select * from expire_unpaid()`;
+    expect((await db.sql`select state from generations where id = ${g.id}`)[0].state).toBe("expired");
+    return g;
+  };
+
+  test("claim_expired_payment records the payment and marks the costume failed for a refund", async () => {
+    const g = await expired();
+    const before = (await db.sql`select admin_overview() as o`)[0].o.failed_unrefunded;
+    const [r] = await db.sql`select * from claim_expired_payment(${sig(31)}, ${g.id}::uuid, ${W2}, 1000000)`;
+    expect(r).toMatchObject({ state: "failed", error: "expired_paid", attempts: 0 });
+    expect(await db.sql`select generation_id, lamports from costume_payments where signature = ${sig(31)}`).toEqual([{ generation_id: g.id, lamports: "1000000" }]);
+    expect((await db.sql`select admin_overview() as o`)[0].o.failed_unrefunded).toBe(before + 1);
+    await db.sql`select admin_mark_refunded(${g.id}::uuid, ${W1})`;
+  });
+
+  test("claim_expired_payment refuses a used signature, another wallet, and a costume that isn't expired", async () => {
+    const g = await expired();
+    expect(await msg(db.sql`select claim_expired_payment(${sig(31)}, ${g.id}::uuid, ${W2}, 1000000)`)).toBe("payment_used");
+    expect((await db.sql`select state from generations where id = ${g.id}`)[0].state).toBe("expired");
+    expect(await msg(db.sql`select claim_expired_payment(${sig(32)}, ${g.id}::uuid, ${W1}, 1000000)`)).toBe("not_found");
+    const fresh = await start(W2);
+    expect(await msg(db.sql`select claim_expired_payment(${sig(33)}, ${fresh.id}::uuid, ${W2}, 1000000)`)).toBe("not_awaiting");
+    await db.sql`select claim_expired_payment(${sig(34)}, ${g.id}::uuid, ${W2}, 1000000)`;
+    expect(await msg(db.sql`select claim_expired_payment(${sig(35)}, ${g.id}::uuid, ${W2}, 1000000)`)).toBe("not_awaiting");
+  });
+
+  test("only the service role may call claim_expired_payment", async () => {
+    const fn = "public.claim_expired_payment(text, uuid, text, bigint)";
+    for (const [role, ok] of [["service_role", true], ["anon", false], ["authenticated", false]] as const) {
+      expect((await db.sql`select has_function_privilege(${role}, ${fn}, 'execute') as ok`)[0].ok, role).toBe(ok);
+    }
+  });
+});

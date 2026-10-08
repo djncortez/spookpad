@@ -81,7 +81,10 @@ Outside: Helius RPC · OpenRouter · PumpPortal trade-local · pump.fun IPFS (Pi
   `art/originals/<id>.<ext>` (≤ 3 MB), inserts `generations` row `awaiting_payment`, returns `{generationId, feeLamports,
   treasury}`. Refuses when generations are paused (§6). First (best effort, never failing the request) it marks
   generations left `awaiting_payment` for over an hour `expired` (`expire_unpaid()`, 50 per call) and deletes their
-  originals; an hour is safe because the fee transaction's blockhash expires ~90 s after start. The browser refuses
+  originals; an hour is safe because the fee transaction's blockhash expires ~90 s after start. A payment that landed
+  in time but was never claimed is still honoured: `pay` on an `expired` row verifies it the same way and, if valid,
+  records it (`claim_expired_payment`) as `failed` with error `expired_paid` (admin refund list), answering 409 that
+  the fee will be refunded. The browser refuses
   to sign the fee unless `treasury` equals its own `NEXT_PUBLIC_TREASURY_ADDRESS`.
 - `POST {action:"pay", generationId, signature}`:
   1. Fetches the transaction from Helius (`confirmed`): no error; fee payer = signed-in wallet; contains a System
