@@ -41,4 +41,24 @@ describe("settings", () => {
     });
     expect(validateSettingsPatch(DEFAULT_SETTINGS, { pause_reason: "admin" })).toEqual({ ok: false, errors: ["Unknown setting: pause_reason."] });
   });
+  test("floating point cent amounts like 1.15 and 0.29 are accepted", () => {
+    expect(validateSettingsPatch(DEFAULT_SETTINGS, { min_ai_credit_usd: 1.15 })).toEqual({
+      ok: true,
+      changed: { min_ai_credit_usd: 1.15 },
+    });
+    expect(validateSettingsPatch(DEFAULT_SETTINGS, { min_ai_credit_usd: 0.29 })).toEqual({
+      ok: true,
+      changed: { min_ai_credit_usd: 0.29 },
+    });
+    expect(validateSettingsPatch(DEFAULT_SETTINGS, { min_ai_credit_usd: 1.234 })).toEqual({
+      ok: false,
+      errors: ["min_ai_credit_usd must be a dollar amount from 0 to 1000."],
+    });
+  });
+  test("inherited keys like constructor do not cause TypeError", () => {
+    expect(validateSettingsPatch(DEFAULT_SETTINGS, { constructor: 1 })).toEqual({
+      ok: false,
+      errors: ["Unknown setting: constructor."],
+    });
+  });
 });

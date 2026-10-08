@@ -49,12 +49,12 @@ export function validateSettingsPatch(current: Settings, patch: unknown):
   const changed: Record<string, unknown> = {};
   const errors: string[] = [];
   for (const [k, v] of Object.entries(patch)) {
-    if (k in INT_BOUNDS) {
+    if (Object.hasOwn(INT_BOUNDS, k)) {
       const [lo, hi] = INT_BOUNDS[k as IntKey];
       if (typeof v !== "number" || !Number.isSafeInteger(v) || v < lo || v > hi) errors.push(`${k} must be a whole number from ${lo} to ${hi}.`);
       else if (v !== current[k as IntKey]) changed[k] = v;
     } else if (k === "min_ai_credit_usd") {
-      if (typeof v !== "number" || !(v >= 0 && v <= 1000) || Math.round(v * 100) !== v * 100) errors.push(`${k} must be a dollar amount from 0 to 1000.`);
+      if (typeof v !== "number" || !(v >= 0 && v <= 1000) || Math.abs(v * 100 - Math.round(v * 100)) > 1e-9) errors.push(`${k} must be a dollar amount from 0 to 1000.`);
       else if (v !== current.min_ai_credit_usd) changed[k] = v;
     } else if (k === "generations_paused" || k === "launches_paused") {
       if (typeof v !== "boolean") errors.push(`${k} must be true or false.`);
