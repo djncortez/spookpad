@@ -4,6 +4,7 @@
   "type": "module",
   "dependencies": {
     "@spookpad/core": "*",
-    "@supabase/supabase-js": "^2.117.2"
+    "@supabase/supabase-js": "^2.117.2",
+    "bs58": "^6.0.0"
   }
 }
