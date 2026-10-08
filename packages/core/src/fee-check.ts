@@ -43,7 +43,10 @@ export function checkFeePayment(tx: ParsedTransaction, want: { wallet: string; t
   if (!tx.meta || tx.meta.err !== null) return "That payment failed on-chain.";
   const payer = tx.transaction.message.accountKeys[0];
   if (!payer || payer.pubkey !== want.wallet || !payer.signer) return "The payment must come from your signed-in wallet.";
-  if (!tx.transaction.message.instructions.some((i) => i.programId === MEMO_PROGRAM_ID && i.parsed === want.memo)) {
+  const memos = tx.transaction.message.instructions.filter((i) => i.programId === MEMO_PROGRAM_ID && typeof i.parsed === "string");
+  const spookMemos = memos.filter((i) => (i.parsed as string).startsWith("spookpad:"));
+  // one payment, one costume: a transaction naming several generations can't be reused for each of them
+  if (spookMemos.length > 1 || !memos.some((i) => i.parsed === want.memo)) {
     return "That payment isn't for this costume.";
   }
   if (!paysAtLeast(tx, want.wallet, want.treasury, want.lamports)) {

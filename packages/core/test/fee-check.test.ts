@@ -52,4 +52,27 @@ describe("checkFeePayment", () => {
     expect(checkFeePayment(feeTx({ lamports: 999_999 }), want)).toBe("That payment doesn't send 0.001 SOL to the SpookPad treasury.");
     expect(checkFeePayment(feeTx({ to: OTHER }), want)).toBe("That payment doesn't send 0.001 SOL to the SpookPad treasury.");
   });
+  test("a transaction naming two generations can't pay for both", () => {
+    const tx = feeTx();
+    tx.transaction.message.instructions.splice(2, 0, { programId: MEMO_PROGRAM_ID, program: "spl-memo", parsed: feeMemo("other-generation") });
+    expect(checkFeePayment(tx, want)).toBe("That payment isn't for this costume.");
+    expect(checkFeePayment(tx, { ...want, memo: feeMemo("other-generation") })).toBe("That payment isn't for this costume.");
+  });
+  test("a reverse transfer (treasury to wallet) isn't a payment", () => {
+    const tx = feeTx();
+    tx.transaction.message.instructions[2] = { programId: SYSTEM_PROGRAM_ID, program: "system",
+      parsed: { type: "transfer", info: { source: TREASURY, destination: WALLET, lamports: 1_000_000 } } };
+    expect(checkFeePayment(tx, want)).toBe("That payment doesn't send 0.001 SOL to the SpookPad treasury.");
+  });
+  test("a transfer only inside inner instructions doesn't count", () => {
+    const tx = feeTx();
+    const [transfer] = tx.transaction.message.instructions.splice(2, 1);
+    const withInner = { ...tx, meta: { err: null, innerInstructions: [{ index: 0, instructions: [transfer] }] } } as ParsedTransaction;
+    expect(checkFeePayment(withInner, want)).toBe("That payment doesn't send 0.001 SOL to the SpookPad treasury.");
+  });
+  test("the memo text under a non-Memo program doesn't count", () => {
+    const tx = feeTx();
+    tx.transaction.message.instructions[1] = { programId: OTHER, program: "spl-memo", parsed: feeMemo(GEN) };
+    expect(checkFeePayment(tx, want)).toBe("That payment isn't for this costume.");
+  });
 });

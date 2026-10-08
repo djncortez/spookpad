@@ -19,7 +19,9 @@ function createArgs(data: string | undefined): CreateArgs | null {
   if (typeof data !== "string") return null;
   try {
     const bytes = bs58.decode(data);
-    return isCreateData(bytes) ? decodeCreateArgs(bytes) : null;
+    if (!isCreateData(bytes)) return null;
+    const args = decodeCreateArgs(bytes);
+    return args.version === 2 ? args : null; // SpookPad launches are Token-2022 only
   } catch {
     return null;
   }
