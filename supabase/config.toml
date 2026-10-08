@@ -1,0 +1,15 @@
+# Only what SpookPad needs from the Supabase CLI (no local Supabase stack: no Docker).
+# Auth (Web3 Solana sign-in, redirect URLs) is set in the dashboard; see README.
+project_id = "spookpad"
+
+[functions.costume]
+verify_jwt = false   # the handler verifies the token itself; the gateway check would block CORS preflights
+
+[functions.prepare-launch]
+verify_jwt = false   # the handler verifies the token itself
+
+[functions.confirm-launch]
+verify_jwt = false   # the handler verifies the token itself
+
+[functions.admin]
+verify_jwt = false   # admin sessions are SpookPad's own (Phantom sign-in), not Supabase JWTs
