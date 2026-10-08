@@ -10,3 +10,4 @@ supabase/functions/*/bundle.mjs
 supabase/.temp/
 .netlify/
 .superpowers/
+.data/
