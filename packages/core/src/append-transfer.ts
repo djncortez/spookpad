@@ -8,7 +8,14 @@ import { compactU16, serialize, SYSTEM_PROGRAM, type DecodedTx, type TxInstructi
 export const MAX_TX_BYTES = 1232;
 
 export function appendTransfer(tx: DecodedTx, to: string, lamports: bigint): Uint8Array {
-  if (lamports <= 0n) throw new Error("Transfer amount must be positive.");
+  if (lamports <= 0n || lamports >= 2n ** 64n) throw new Error("Transfer amount must be positive and below 2^64 lamports.");
+  let recipient: Uint8Array | undefined;
+  try {
+    recipient = bs58.decode(to);
+  } catch {
+    recipient = undefined;
+  }
+  if (recipient?.length !== 32) throw new Error("The recipient must be a 32-byte base58 address.");
   if (tx.signatures.some((s) => s.some((b) => b !== 0))) throw new Error("The transaction is already signed.");
   const header = { ...tx.header };
   const keys = [...tx.staticKeys];

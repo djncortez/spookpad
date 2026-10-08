@@ -1,5 +1,5 @@
 // Just enough of the Solana transaction wire format for SpookPad, with no Solana SDK: read a transaction
-// (legacy or v0), sign it, and build the one transfer the launcher sends itself (funding a coin wallet).
+// (legacy or v0), sign it, and build the one transfer SpookPad sends itself (funding a coin wallet).
 // Layout: compact-u16 signature count, 64-byte signatures, then the message: [0x80 | version] (v0 only),
 // header (3 bytes), compact-u16 account count + 32-byte keys, 32-byte recent blockhash, compact-u16 instruction
 // count + instructions (program index u8, compact-u16 + account indexes u8, compact-u16 + data), and for v0

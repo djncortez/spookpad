@@ -73,7 +73,11 @@ describe("appendTransfer", () => {
     const out = appendTransfer(decodeTransaction(new Uint8Array(bytes)), treasury.toBase58(), 9n);
     const back = Transaction.from(out);
     expect(back.instructions).toHaveLength(2);
-    expect(Number(SystemInstruction.decodeTransfer(back.instructions[1]).lamports)).toBe(9);
+    expect(back.instructions[0].programId.toBase58()).toBe(program.toBase58());
+    expect(keysOf(back.instructions[0])).toEqual(keysOf(pumpLike));
+    expect(Buffer.from(back.instructions[0].data)).toEqual(Buffer.from([1, 2, 3]));
+    const t = SystemInstruction.decodeTransfer(back.instructions[1]);
+    expect([t.fromPubkey.toBase58(), t.toPubkey.toBase58(), BigInt(t.lamports)]).toEqual([payer.toBase58(), treasury.toBase58(), 9n]);
   });
 
   test("an already writable recipient is reused; a read-only one is refused", () => {
@@ -88,6 +92,14 @@ describe("appendTransfer", () => {
     expect(() => appendTransfer(signed, treasury.toBase58(), 1n)).toThrow(/already signed/);
     expect(() => appendTransfer(decodeTransaction(v0([pumpLike])), treasury.toBase58(), 0n)).toThrow(/positive/);
     expect(() => appendTransfer(decodeTransaction(v0([pumpLike])), payer.toBase58(), 1n)).toThrow(/fee payer/);
+  });
+
+  test("refuses a recipient that is not a 32-byte address and amounts of 2^64 or more", () => {
+    const tx = () => decodeTransaction(v0([pumpLike]));
+    expect(() => appendTransfer(tx(), "abc", 1n)).toThrow(/32-byte/);
+    expect(() => appendTransfer(tx(), "0OIl", 1n)).toThrow(/32-byte/);
+    expect(() => appendTransfer(tx(), treasury.toBase58(), 2n ** 64n)).toThrow(/positive/);
+    expect(appendTransfer(tx(), treasury.toBase58(), 2n ** 64n - 1n).length).toBeGreaterThan(0);
   });
 
   test("refuses to grow past the Solana size limit", () => {
