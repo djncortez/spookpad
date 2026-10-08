@@ -2,10 +2,15 @@
   "name": "spookpad",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/*", "apps/*"],
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "build:functions": "node scripts/build-functions.mjs",
+    "deploy:functions": "node scripts/build-functions.mjs && npx supabase functions deploy --no-verify-jwt --use-api"
   },
   "devDependencies": {
     "@types/node": "^22",
