@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { ipfsUploader, pumpPortalCreate } from "../src/pump-services";
+import { ipfsUploader, pumpPortalCreate, telegramPoster } from "../src/pump-services";
 
 const meta = { name: "Spooky Frog", symbol: "SFROG", description: "Boo.", twitter: null, telegram: null, website: "https://spookpad.fun" };
 const art = { bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), type: "image/png" as const };
@@ -39,5 +39,30 @@ describe("ipfsUploader", () => {
   });
   test("without a JWT the pump.fun error is passed on", async () => {
     await expect(ipfsUploader(undefined, async () => new Response("down", { status: 503 }))(meta, art)).rejects.toThrow(/pump.fun IPFS: HTTP 503/);
+  });
+});
+
+describe("telegramPoster", () => {
+  const TOKEN = "123456:SECRET-bot-token";
+  test("posts to the chat", async () => {
+    let url = "";
+    await telegramPoster(TOKEN, "42", async (u) => { url = String(u); return new Response("{}"); })("hi");
+    expect(url).toBe(`https://api.telegram.org/bot${TOKEN}/sendMessage`);
+  });
+  test("a network failure never leaks the bot token (URL or cause)", async () => {
+    const err = await telegramPoster(TOKEN, "42", async (u) => { throw new TypeError(`fetch failed: ${String(u)}`, { cause: new Error(String(u)) }); })("hi").catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toBe("Telegram: request failed");
+    expect((err as Error).cause).toBeUndefined();
+    expect(JSON.stringify({ m: (err as Error).message, s: (err as Error).stack })).not.toContain("SECRET");
+  });
+  test("an error answer says only the status", async () => {
+    const err = await telegramPoster(TOKEN, "42", async (u) => new Response(`echo ${String(u)}`, { status: 401 }))("hi").catch((e: Error) => e);
+    expect((err as Error).message).toBe("Telegram: HTTP 401");
+  });
+  test("without a token or chat nothing is sent", async () => {
+    let calls = 0;
+    await telegramPoster(undefined, "42", async () => { calls++; return new Response("{}"); })("hi");
+    expect(calls).toBe(0);
   });
 });

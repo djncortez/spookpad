@@ -86,11 +86,17 @@ export async function pumpPortalCreate(
 export function telegramPoster(token: string | undefined, chatId: string | undefined, fetchFn: typeof fetch = fetch) {
   return async (text: string): Promise<void> => {
     if (!token || !chatId) return;
-    const res = await fetchFn(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true }),
-    });
-    if (!res.ok) throw await failure(res, "Telegram");
+    // The bot token is in the URL: errors carry neither the URL, the fetch error (its cause) nor the answer's body.
+    let res: Response;
+    try {
+      res = await fetchFn(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true }),
+      });
+    } catch {
+      throw new Error("Telegram: request failed");
+    }
+    if (!res.ok) throw new Error(`Telegram: HTTP ${res.status}`);
   };
 }
