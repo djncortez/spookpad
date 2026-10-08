@@ -110,9 +110,10 @@ describe("checkCreateTx", () => {
     expect(checkCreateTx(tx({ create: createData({ cashback: 1 }) }), want())).toEqual({ ok: false, error: "Cashback mode is on." });
     expect(checkCreateTx(tx({ create: createData({ bps: 50n }) }), want())).toEqual({ ok: false, error: "The transaction overrides the creator fee." });
   });
-  test("refuses several small transfers that add up to more than a service fee", () => {
-    expect(checkCreateTx(tx({ extra: [transfer(MAX), transfer(1n)] }), want())).toEqual({ ok: false, error: "The transaction sends more SOL than a service fee." });
-    expect(checkCreateTx(tx({ extra: [transfer(MAX / 2n), transfer(MAX / 2n)] }), want()).ok).toBe(true);
+  test("refuses any SOL transfer in PumpPortal's transaction, however small", () => {
+    expect(MAX).toBe(0n);
+    expect(checkCreateTx(tx({ extra: [transfer(1n)] }), want())).toEqual({ ok: false, error: "The transaction sends SOL to another wallet." });
+    expect(checkCreateTx(tx({ extra: [transfer(1n), transfer(1n)] }), want())).toEqual({ ok: false, error: "The transaction sends SOL to another wallet." });
   });
   test("refuses another wallet as payer", () => {
     const other = tx();
@@ -129,7 +130,7 @@ describe("checkCreateTx", () => {
     const strange = tx();
     strange.staticKeys[18] = filler(); // the create instruction now calls an unknown program
     expect(checkCreateTx(strange, want()).ok).toBe(false);
-    expect(checkCreateTx(tx({ extra: [transfer(MAX + 1n)] }), want())).toEqual({ ok: false, error: "The transaction sends more SOL than a service fee." });
+    expect(checkCreateTx(tx({ extra: [transfer(MAX + 1n)] }), want())).toEqual({ ok: false, error: "The transaction sends SOL to another wallet." });
     expect(checkCreateTx(tx({ extra: [transfer(1n, 2)] }), want())).toEqual({ ok: false, error: "The transaction moves SOL from an unexpected wallet." });
     expect(checkCreateTx(tx({ buy: new Uint8Array([9, 9, 9, 9, 9, 9, 9, 9]) }), want())).toEqual({ ok: false, error: "The transaction does another pump.fun action." });
   });

@@ -79,7 +79,10 @@ Outside: Helius RPC · OpenRouter · PumpPortal trade-local · pump.fun IPFS (Pi
 ### 4.1 `costume`
 - `POST {action:"start", draftId, costume, image}` (signed-in): validates image and costume, stores the original in
   `art/originals/<id>.<ext>` (≤ 3 MB), inserts `generations` row `awaiting_payment`, returns `{generationId, feeLamports,
-  treasury}`. Refuses when generations are paused (§6).
+  treasury}`. Refuses when generations are paused (§6). First (best effort, never failing the request) it marks
+  generations left `awaiting_payment` for over an hour `expired` (`expire_unpaid()`, 50 per call) and deletes their
+  originals; an hour is safe because the fee transaction's blockhash expires ~90 s after start. The browser refuses
+  to sign the fee unless `treasury` equals its own `NEXT_PUBLIC_TREASURY_ADDRESS`.
 - `POST {action:"pay", generationId, signature}`:
   1. Fetches the transaction from Helius (`confirmed`): no error; fee payer = signed-in wallet; contains a System
      transfer from that wallet to `TREASURY_ADDRESS` of ≥ the fee recorded on the generation; contains Memo
@@ -90,7 +93,10 @@ Outside: Helius RPC · OpenRouter · PumpPortal trade-local · pump.fun IPFS (Pi
   3. Marks the generation then `generating`, and calls OpenRouter (§5). On success: stores the image in
      `art/costumes/<generationId>.<ext>`, state `ready`. On failure (refusal, no image, timeout 90 s, HTTP error): state
      back to `paid`, the error is returned; `POST {action:"retry", generationId}` tries again without a new payment
-     (max 3 attempts, then `failed` and the admin sees it for a manual refund).
+     (max 3 attempts, then `failed` and the admin sees it for a manual refund). While generations are paused, `pay`
+     and `retry` start no AI attempt (409 "paused"); the generation stays `paid` for a later free retry. A generation
+     stuck `generating` for 3 minutes (the function died) can be retried (the attempt is taken over); the site shows
+     "Try again (free)" for it. A stuck third attempt nobody retries is marked `failed` when the admin lists refunds.
 - Rate limit: max `MAX_GENERATIONS_PER_WALLET_PER_HOUR` (20) started generations.
 
 ### 4.2 `prepare-launch`
@@ -105,7 +111,7 @@ browser's mint keypair):
    a buy.
 4. Reads the address-lookup tables the transaction uses (Helius `getMultipleAccounts`; addresses start at byte 56) and
    checks it with the adapted `pump-tx` checker: creates exactly this mint with this name, symbol and URI; creator and
-   fee payer = trader; no buy; no other SOL transfers beyond PumpPortal's allowed service fee.
+   fee payer = trader; no buy; no SOL transfers at all (`MAX_EXTRA_TRANSFER_LAMPORTS = 0`).
 5. Adds, keeping PumpPortal's instructions, blockhash and lookup tables: when `devBuySol` > 0, SpookPad's own dev buy
    (Associated Token `createIdempotent` for the trader's Token-2022 account, then pump.fun `buy_exact_sol_in`
    spending exactly the chosen lamports; it is in the same transaction as the create, so nobody trades first), then
@@ -114,6 +120,10 @@ browser's mint keypair):
    (System, Associated Token) moves into the static keys; a new account the table holds is loaded from it; a
    table-loaded read-only account needed writable is refused. Refuses a result over 1232 bytes. Returns the unsigned
    transaction (base64) and records a `launches` row `pending` (mint, wallet, generation, fields).
+6. Before the wallet signs, the browser decodes the transaction (resolving lookup tables) and refuses unless its only
+   System instructions are transfers trader -> `NEXT_PUBLIC_TREASURY_ADDRESS` adding up to exactly the launch fee shown,
+   and its `buy_exact_sol_in` spends exactly the dev buy entered (none when 0). If Helius refuses the signed
+   transaction (preflight), it was never sent: the browser forgets the in-flight record at once.
 
 ### 4.3 `confirm-launch`
 `POST {mint, signature}`: fetches the transaction (`confirmed`); it must be the pending launch's create transaction
@@ -157,7 +167,7 @@ Prompts are stored in the `costumes` table (§6) and editable in admin; the tabl
 |---|---|
 | `settings` | key, value (fees, limits, pause switches) |
 | `costumes` | slug, label, emoji, prompt, sort, enabled |
-| `generations` | id, wallet, draft_id, costume, original_path, result_path, state (`awaiting_payment`/`paid`/`generating`/`ready`/`failed`), fee_lamports, attempts, error, metadata_key, metadata_uri, refunded_at, created_at |
+| `generations` | id, wallet, draft_id, costume, original_path, result_path, state (`awaiting_payment`/`paid`/`generating`/`ready`/`failed`/`expired`), fee_lamports, attempts, error, metadata_key, metadata_uri, refunded_at, created_at |
 | `costume_payments` | signature (PK), generation_id, wallet, lamports, created_at |
 | `launches` | mint (PK), wallet, generation_id, name, ticker, description, twitter, telegram, dev_buy_lamports, metadata_uri, launch_fee_lamports, create_signature, state (`pending`/`live`/`abandoned`), launched_at |
 
@@ -199,6 +209,7 @@ the frontend design skill.
 | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | .env, Netlify | Supabase project |
 | `NEXT_PUBLIC_SOLANA_RPC_URL` | .env, Netlify | Helius URL for the browser |
 | `NEXT_PUBLIC_SITE_URL`, `ADMIN_SLUG` | .env, Netlify | Site URL, secret admin path |
+| `NEXT_PUBLIC_TREASURY_ADDRESS` | .env, Netlify | Same as `TREASURY_ADDRESS`; the browser pays fees only there |
 | `HELIUS_API_KEY` | Supabase | Server-side chain reads |
 | `TREASURY_ADDRESS` | Supabase (+ shown on site) | Receives costume and launch fees |
 | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` | Supabase | AI costume edits |

@@ -64,23 +64,45 @@ In a normal `npm test` this check is skipped and never calls OpenRouter.
 
 ## Go live
 
-1. **Supabase.** Create a free project and pick the region **East US (Ohio)** so it sits next to Netlify's functions
-   (the region cannot be changed later). Authentication -> Sign In / Providers -> **Web3 Wallet**: enable Solana. Set
-   the Site URL to your Netlify URL and add it (and `http://localhost:3000`) to the redirect URLs.
-2. **Database.** `npx supabase login`, `npx supabase link --project-ref <ref>`, `npx supabase db push`.
-3. **Treasury.** Make a separate Phantom wallet for the treasury; copy its address.
-4. **OpenRouter.** Create an account, an API key, and buy ~$5 of credit with USDC.
-5. **Function secrets.** `npx supabase secrets set NAME=value` for each secret in `.env.example` (HELIUS_API_KEY,
-   SITE_ORIGINS, SITE_URL, TREASURY_ADDRESS, OPENROUTER_API_KEY, ADMIN_WALLET, ADMIN_SESSION_SECRET; optional
-   OPENROUTER_MODEL, PINATA_JWT, TELEGRAM_BOT_TOKEN, ADMIN_TELEGRAM_CHAT_ID). Run these in your own terminal; never
-   paste the values into a chat.
-6. **Functions.** `npm run deploy:functions`.
-7. **Netlify.** New site from the Git repo; set NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY,
-   NEXT_PUBLIC_SOLANA_RPC_URL, NEXT_PUBLIC_SITE_URL and ADMIN_SLUG; deploy. The Helius key in
+1. **Netlify site (for its URL).** Create a new Netlify site from the Git repo and pick its name now, so you know the
+   site URL (`https://<name>.netlify.app`, or your own domain) that steps 2 and 6 need. The first build may fail
+   without the environment variables; that is fine, step 8 sets them and redeploys.
+2. **Supabase.** Create a free project and pick the region closest to your traders (the Edge Functions run there; the
+   region cannot be changed later). Authentication -> Sign In / Providers -> **Web3 Wallet**: enable Solana. Set
+   the Site URL to the URL from step 1 and add it (and `http://localhost:3000`) to the redirect URLs.
+3. **Database.** `npx supabase login`, `npx supabase link --project-ref <ref>`, `npx supabase db push`.
+4. **Treasury.** Make a separate Phantom wallet for the treasury; copy its address.
+5. **OpenRouter.** Create an account, an API key, and buy ~$5 of credit with USDC.
+6. **Function secrets.** `npx supabase secrets set NAME=value` for each secret in `.env.example`: HELIUS_API_KEY,
+   SITE_ORIGINS (the URL from step 1, plus `http://localhost:3000` if you test locally), SITE_URL (the URL from
+   step 1), TREASURY_ADDRESS, OPENROUTER_API_KEY, ADMIN_WALLET, ADMIN_SESSION_SECRET; optional OPENROUTER_MODEL,
+   PINATA_JWT, TELEGRAM_BOT_TOKEN, ADMIN_TELEGRAM_CHAT_ID. Supabase provides SUPABASE_URL to every function, and
+   SUPABASE_SERVICE_ROLE_KEY only on projects still using the legacy API keys. On a project using the new API keys
+   (Project Settings -> API Keys shows `sb_publishable_…` / `sb_secret_…`), set the secret key yourself:
+   `npx supabase secrets set SERVICE_KEY=sb_secret_…` (Supabase doesn't allow secret names starting with
+   `SUPABASE_`). Run these in your own terminal; never paste the values into a chat.
+7. **Functions.** `npm run deploy:functions`. Then smoke-test each one from your own terminal (`<ref>` is the project
+   ref, `<site>` the URL from step 1 without a trailing slash):
+   ```bash
+   for f in costume prepare-launch confirm-launch admin/overview; do
+     echo "== $f"
+     # preflight from the site: expect 204 and access-control-allow-origin: <site>
+     curl -s -o /dev/null -D - -X OPTIONS -H "Origin: <site>" -H "Access-Control-Request-Method: POST" \
+       "https://<ref>.supabase.co/functions/v1/$f" | grep -iE "^HTTP|access-control-allow-origin"
+     # no sign-in: expect 401
+     curl -s -o /dev/null -w "%{http_code}\n" -X POST -H "Origin: <site>" -H "content-type: application/json" \
+       -d '{}' "https://<ref>.supabase.co/functions/v1/$f"
+   done
+   ```
+   Anything else (a 500 or a boot error) usually means a missing secret: the function's logs in the Supabase dashboard
+   (Edge Functions -> the function -> Logs) name it.
+8. **Netlify environment.** In the site from step 1 set NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY,
+   NEXT_PUBLIC_SOLANA_RPC_URL, NEXT_PUBLIC_SITE_URL, NEXT_PUBLIC_TREASURY_ADDRESS (the same address as
+   TREASURY_ADDRESS: the browser refuses to pay fees anywhere else) and ADMIN_SLUG; redeploy. The Helius key in
    NEXT_PUBLIC_SOLANA_RPC_URL is visible in every visitor's browser, so in the Helius dashboard lock it to your site's
    domain. Use a separate key for HELIUS_API_KEY on the server.
-8. **Admin.** Open `https://<site>/<ADMIN_SLUG>/`, sign in with ADMIN_WALLET, check the fees and the OpenRouter credit.
-9. **First real run.** Summon one costume (0.001 SOL) and launch one coin with a 0.01 SOL dev buy (0.02 SOL launch fee,
+9. **Admin.** Open `https://<site>/<ADMIN_SLUG>/`, sign in with ADMIN_WALLET, check the fees and the OpenRouter credit.
+10. **First real run.** Summon one costume (0.001 SOL) and launch one coin with a 0.01 SOL dev buy (0.02 SOL launch fee,
    the 0.01 SOL buy, plus pump.fun's own creation cost). Check the coin on pump.fun shows the costumed image, that your
    wallet holds the coin, and that the treasury received both fees. Then check the live market cap: on the coin's
    SpookPad page, watch the number for about 30 s next to DEX Screener; it should show LIVE, update on trades and match
@@ -90,7 +112,9 @@ In a normal `npm test` this check is skipped and never calls OpenRouter.
 
 PumpPortal builds only the coin's create transaction. SpookPad builds the dev buy itself (`packages/core/src/pump-buy.ts`) and adds its
 own fee. If PumpPortal or pump.fun changes something, `prepare-launch` refuses with "PumpPortal sent a launch
-transaction SpookPad won't sign". After any pump.fun upgrade, re-run both of these:
+transaction SpookPad won't sign". That includes PumpPortal adding any SOL transfer of its own (a service fee, say):
+SpookPad allows none (`MAX_EXTRA_TRANSFER_LAMPORTS = 0n` in `packages/core/src/pump-tx.ts`), so launches are refused
+until the change is reviewed. After any pump.fun upgrade, re-run both of these:
 
 ```bash
 node scripts/capture-pumpportal.mjs

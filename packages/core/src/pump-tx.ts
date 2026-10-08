@@ -1,6 +1,6 @@
 // Checks the unsigned create-only transaction PumpPortal builds before SpookPad adds its own dev buy and fee and hands
 // it to the trader (spec §4.2 step 4): it creates exactly this coin (mint, name, ticker, SpookPad's metadata URI) with
-// the trader as creator and fee payer, creator fees to the trader, and nothing else. PumpPortal is never asked for a
+// the trader as creator and fee payer, creator fees to the trader, no SOL transfers, and nothing else. PumpPortal is never asked for a
 // dev buy: it routes buys through its own program (FAdo9NCw…, seen live on 2026-10-08), which the trader's wallet
 // must not sign for. Layouts from pump-fun/pump-public-docs idl/pump.json (create/create_v2 checked by IdeaPad on
 // 2026-09-29 and against a live PumpPortal transaction on 2026-10-08).
@@ -17,9 +17,10 @@ export const BUY = anchor("buy");
 export const BUY_EXACT_SOL_IN = anchor("buy_exact_sol_in");
 const COMPUTE_BUDGET = "ComputeBudget111111111111111111111111111111";
 const ALLOWED_PROGRAMS = new Set([PUMP_PROGRAM, COMPUTE_BUDGET, SYSTEM_PROGRAM]);
-// PumpPortal may add a small service-fee transfer; more than this in plain transfers is refused
-// (the transfer's destination is deliberately unchecked: PumpPortal's service-fee wallet isn't ours to pin, so the amount is capped instead)
-export const MAX_EXTRA_TRANSFER_LAMPORTS = 10_000_000n;
+// SOL that PumpPortal's own transaction may move with plain System transfers: none. SpookPad asks PumpPortal for the
+// create only (amount 0) and the live transaction has no transfer; a transfer's destination couldn't be pinned anyway.
+// If PumpPortal starts adding a service-fee transfer, every launch is refused here until that is reviewed.
+export const MAX_EXTRA_TRANSFER_LAMPORTS = 0n;
 // Priority fee = compute unit limit x unit price. The live PumpPortal create pays 0.0005 SOL; refuse anything above 0.005 SOL.
 export const MAX_PRIORITY_FEE_LAMPORTS = 5_000_000n;
 
@@ -136,6 +137,6 @@ export function checkCreateTx(tx: DecodedTx, want: ExpectedCreate):
   if (create.cashback) return fail("Cashback mode is on.");
   if (create.mayhem) return fail("Mayhem mode is on.");
   if (create.creatorFeeBps !== 0n) return fail("The transaction overrides the creator fee.");
-  if (extra > MAX_EXTRA_TRANSFER_LAMPORTS) return fail("The transaction sends more SOL than a service fee.");
+  if (extra > MAX_EXTRA_TRANSFER_LAMPORTS) return fail("The transaction sends SOL to another wallet.");
   return { ok: true, args: create };
 }
