@@ -15,14 +15,34 @@ export const CREATE_V1 = anchor("create");
 export const CREATE_V2 = anchor("create_v2");
 export const BUY = anchor("buy");
 export const BUY_EXACT_SOL_IN = anchor("buy_exact_sol_in");
-const COMPUTE_BUDGET = "ComputeBudget111111111111111111111111111111";
-const ALLOWED_PROGRAMS = new Set([PUMP_PROGRAM, COMPUTE_BUDGET, SYSTEM_PROGRAM]);
+export const COMPUTE_BUDGET_PROGRAM = "ComputeBudget111111111111111111111111111111";
+const ALLOWED_PROGRAMS = new Set([PUMP_PROGRAM, COMPUTE_BUDGET_PROGRAM, SYSTEM_PROGRAM]);
 // SOL that PumpPortal's own transaction may move with plain System transfers: none. SpookPad asks PumpPortal for the
 // create only (amount 0) and the live transaction has no transfer; a transfer's destination couldn't be pinned anyway.
 // If PumpPortal starts adding a service-fee transfer, every launch is refused here until that is reviewed.
 export const MAX_EXTRA_TRANSFER_LAMPORTS = 0n;
 // Priority fee = compute unit limit x unit price. The live PumpPortal create pays 0.0005 SOL; refuse anything above 0.005 SOL.
 export const MAX_PRIORITY_FEE_LAMPORTS = 5_000_000n;
+
+// Reads a transaction's compute-budget instructions (their data, in order): only SetComputeUnitLimit (2, u32) and
+// SetComputeUnitPrice (3, u64), each at most once, with exact lengths; a price needs a limit (instructions get appended
+// later, so without a limit the fee couldn't be bounded). Returns the priority fee (limit x price, rounded up to whole
+// lamports; 0 without a price), refused above MAX_PRIORITY_FEE_LAMPORTS. Used by checkCreateTx and by the browser.
+export type PriorityFee = { ok: true; lamports: bigint } | { ok: false; problem: "unexpected" | "no_limit" | "too_high" };
+export function priorityFeeOf(computeBudgetData: Uint8Array[]): PriorityFee {
+  let limit: bigint | null = null; // SetComputeUnitLimit units
+  let price: bigint | null = null; // SetComputeUnitPrice micro-lamports per unit
+  for (const d of computeBudgetData) {
+    const dv = new DataView(d.buffer, d.byteOffset, d.byteLength);
+    if (d[0] === 2 && d.length === 5 && limit === null) limit = BigInt(dv.getUint32(1, true));
+    else if (d[0] === 3 && d.length === 9 && price === null) price = dv.getBigUint64(1, true);
+    else return { ok: false, problem: "unexpected" };
+  }
+  if (price === null) return { ok: true, lamports: 0n };
+  if (limit === null) return { ok: false, problem: "no_limit" };
+  const lamports = (limit * price + 999_999n) / 1_000_000n;
+  return lamports > MAX_PRIORITY_FEE_LAMPORTS ? { ok: false, problem: "too_high" } : { ok: true, lamports };
+}
 
 export interface CreateArgs {
   version: 1 | 2;
@@ -89,19 +109,14 @@ export function checkCreateTx(tx: DecodedTx, want: ExpectedCreate):
 
   let create: CreateArgs | null = null;
   let extra = 0n;
-  let limit: bigint | null = null; // SetComputeUnitLimit units
-  let price: bigint | null = null; // SetComputeUnitPrice micro-lamports per unit
+  const budget: Uint8Array[] = [];
   for (const ix of tx.instructions) {
     const program = programOf(tx, ix);
     if (!ALLOWED_PROGRAMS.has(program)) return fail(`The transaction calls an unexpected program (${program}).`);
-    if (program === COMPUTE_BUDGET) {
-      // only SetComputeUnitLimit (2, u32) and SetComputeUnitPrice (3, u64), each once, with exact lengths
-      const bad = fail("The transaction has an unexpected compute-budget instruction.");
-      const d = ix.data;
-      const dv = new DataView(d.buffer, d.byteOffset, d.byteLength);
-      if (d[0] === 2 && d.length === 5 && limit === null) limit = BigInt(dv.getUint32(1, true));
-      else if (d[0] === 3 && d.length === 9 && price === null) price = dv.getBigUint64(1, true);
-      else return bad;
+    if (program === COMPUTE_BUDGET_PROGRAM) {
+      budget.push(ix.data);
+      const sofar = priorityFeeOf(budget); // a bad instruction is refused here; the fee itself after the loop
+      if (!sofar.ok && sofar.problem === "unexpected") return fail("The transaction has an unexpected compute-budget instruction.");
       continue;
     }
     if (program === SYSTEM_PROGRAM) {
@@ -125,11 +140,9 @@ export function checkCreateTx(tx: DecodedTx, want: ExpectedCreate):
     return fail("The transaction does another pump.fun action.");
   }
   if (!create) return fail("The transaction doesn't create a coin.");
-  // buildLaunchTx appends instructions, so without a limit the fee couldn't be bounded: a price needs a limit.
-  if (price !== null) {
-    if (limit === null) return fail("The transaction sets a priority fee without a compute-unit limit.");
-    if ((limit * price + 999_999n) / 1_000_000n > MAX_PRIORITY_FEE_LAMPORTS) return fail("The transaction's network fee is too high.");
-  }
+  const fee = priorityFeeOf(budget);
+  if (!fee.ok && fee.problem === "no_limit") return fail("The transaction sets a priority fee without a compute-unit limit.");
+  if (!fee.ok) return fail("The transaction's network fee is too high.");
   if (create.name !== want.name || create.symbol !== want.symbol) return fail("The coin name or ticker doesn't match.");
   if (create.uri !== want.uri) return fail("The coin's metadata isn't SpookPad's.");
   if (create.creator !== want.creator) return fail("The creator fees would go to another wallet.");

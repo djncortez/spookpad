@@ -5,7 +5,8 @@
 // pending launch on the server, so an older prepared transaction is never reused or sent.
 import { Keypair, SystemProgram, VersionedTransaction, type AddressLookupTableAccount, type PublicKey } from "@solana/web3.js";
 import { fromBase64 } from "@spookpad/core/encoding";
-import { BUY_EXACT_SOL_IN, PUMP_PROGRAM } from "@spookpad/core/pump-tx";
+import { ASSOCIATED_TOKEN_PROGRAM } from "@spookpad/core/pump-buy";
+import { BUY_EXACT_SOL_IN, COMPUTE_BUDGET_PROGRAM, CREATE_V2, priorityFeeOf, PUMP_PROGRAM } from "@spookpad/core/pump-tx";
 import type { CoinFields } from "@spookpad/core/validate";
 import bs58 from "bs58";
 import type { Invoke } from "./call";
@@ -36,10 +37,13 @@ export interface LaunchExpect {
 const u64At = (data: Uint8Array, at: number): bigint => new DataView(data.buffer, data.byteOffset, data.byteLength).getBigUint64(at, true);
 const startsWith = (data: Uint8Array, prefix: number[]) => data.length >= prefix.length && prefix.every((b, i) => data[i] === b);
 
-// Checks the prepared transaction before the wallet is asked to sign it: the trader pays for it, its only System
-// instructions are transfers from the trader to the configured treasury adding up to exactly the launch fee shown, and
-// its pump.fun dev buy (buy_exact_sol_in) spends exactly the dev buy shown (none when it is 0). Accounts loaded from
-// lookup tables are resolved, so a fee or a treasury loaded from a table is checked too. Returns a problem, or null.
+// Checks the prepared transaction before the wallet is asked to sign it: the trader pays for it; it calls only
+// pump.fun, System, ComputeBudget and Associated Token; its only System instructions are transfers from the trader to
+// the configured treasury adding up to exactly the launch fee shown; pump.fun gets exactly one create_v2 and, only when
+// the dev buy shown is above 0, one buy_exact_sol_in spending exactly that; the priority fee passes the same check as
+// the server's (priorityFeeOf, capped at MAX_PRIORITY_FEE_LAMPORTS); Associated Token only createIdempotent. Accounts
+// loaded from lookup tables are resolved, so a fee or a treasury loaded from a table is checked too. Returns a problem,
+// or null.
 export async function checkPreparedLaunch(tx: VersionedTransaction, want: LaunchExpect, lookupTable: LaunchDeps["lookupTable"]): Promise<string | null> {
   if (!want.treasury) return "SpookPad's treasury address isn't set up on this site.";
   const msg = tx.message;
@@ -54,7 +58,9 @@ export async function checkPreparedLaunch(tx: VersionedTransaction, want: Launch
   try { keys = msg.getAccountKeys({ addressLookupTableAccounts: tables }); } catch { return "its accounts couldn't be read."; }
   const key = (i: number) => keys.get(i)?.toBase58();
   let toTreasury = 0n;
+  let creates = 0;
   const buys: bigint[] = [];
+  const budget: Uint8Array[] = [];
   for (const ix of msg.compiledInstructions) {
     const program = key(ix.programIdIndex);
     const data = ix.data;
@@ -62,11 +68,23 @@ export async function checkPreparedLaunch(tx: VersionedTransaction, want: Launch
       if (data.length !== 12 || new DataView(data.buffer, data.byteOffset, 4).getUint32(0, true) !== 2) return "it has an unexpected System instruction.";
       if (key(ix.accountKeyIndexes[0]) !== want.trader || key(ix.accountKeyIndexes[1]) !== want.treasury) return "it sends SOL to a wallet that isn't SpookPad's treasury.";
       toTreasury += u64At(data, 4);
-    } else if (program === PUMP_PROGRAM && startsWith(data, BUY_EXACT_SOL_IN)) {
-      if (data.length < 16) return "its dev buy can't be read.";
-      buys.push(u64At(data, 8));
+    } else if (program === PUMP_PROGRAM) {
+      if (startsWith(data, CREATE_V2)) creates++;
+      else if (startsWith(data, BUY_EXACT_SOL_IN)) {
+        if (data.length < 16) return "its dev buy can't be read.";
+        buys.push(u64At(data, 8));
+      } else return "it has an unexpected pump.fun instruction.";
+    } else if (program === COMPUTE_BUDGET_PROGRAM) {
+      budget.push(data);
+    } else if (program === ASSOCIATED_TOKEN_PROGRAM) {
+      if (data.length !== 1 || data[0] !== 1) return "it has an unexpected token-account instruction.";
+    } else {
+      return `it calls an unexpected program (${program}).`;
     }
   }
+  if (creates !== 1) return "it doesn't create exactly one coin.";
+  const fee = priorityFeeOf(budget);
+  if (!fee.ok) return fee.problem === "too_high" ? "its network fee is too high." : "it has unexpected network fee settings.";
   if (toTreasury !== BigInt(want.launchFeeLamports)) return "the launch fee isn't the one shown (reload the page to see the current fee).";
   const buyOk = want.devBuyLamports > 0 ? buys.length === 1 && buys[0] === BigInt(want.devBuyLamports) : buys.length === 0;
   if (!buyOk) return "the dev buy isn't the one you entered.";

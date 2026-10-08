@@ -3,7 +3,7 @@ import bs58 from "bs58";
 import { existsSync, readFileSync } from "node:fs";
 import { fromBase64 } from "../src/encoding";
 import { newKeypair } from "../src/keys";
-import { BUY, BUY_EXACT_SOL_IN, checkCreateTx, CREATE_V1, CREATE_V2, decodeCreateArgs, isCreateData, MAX_EXTRA_TRANSFER_LAMPORTS, MAX_PRIORITY_FEE_LAMPORTS, PUMP_PROGRAM } from "../src/pump-tx";
+import { BUY, BUY_EXACT_SOL_IN, checkCreateTx, CREATE_V1, CREATE_V2, decodeCreateArgs, isCreateData, MAX_EXTRA_TRANSFER_LAMPORTS, MAX_PRIORITY_FEE_LAMPORTS, priorityFeeOf, PUMP_PROGRAM } from "../src/pump-tx";
 import { decodeTransaction, encodeMessage, serialize, SYSTEM_PROGRAM, type TxInstruction } from "../src/solana-tx";
 
 const creator = newKeypair().publicKey;
@@ -164,6 +164,23 @@ describe("checkCreateTx: ComputeBudget instructions", () => {
     expect(checkCreateTx(tx({ extra: [budget(3, 1n), budget(3, 2n)] }), want())).toEqual({ ok: false, error: bad });
     expect(checkCreateTx(tx({ extra: [budget(2, 1n, 6)] }), want())).toEqual({ ok: false, error: bad });
     expect(checkCreateTx(tx({ extra: [budget(3, 1n, 8)] }), want())).toEqual({ ok: false, error: bad });
+  });
+});
+
+describe("priorityFeeOf (shared with the browser's launch check)", () => {
+  const limit = (n: number) => { const d = new Uint8Array(5); d[0] = 2; new DataView(d.buffer).setUint32(1, n, true); return d; };
+  const price = (n: bigint) => { const d = new Uint8Array(9); d[0] = 3; new DataView(d.buffer).setBigUint64(1, n, true); return d; };
+  test("returns the fee, rounded up, and 0 without a price", () => {
+    expect(priorityFeeOf([])).toEqual({ ok: true, lamports: 0n });
+    expect(priorityFeeOf([limit(200_000)])).toEqual({ ok: true, lamports: 0n });
+    expect(priorityFeeOf([limit(200_000), price(25_000_000n)])).toEqual({ ok: true, lamports: 5_000_000n });
+    expect(priorityFeeOf([price(1n), limit(1)])).toEqual({ ok: true, lamports: 1n });
+  });
+  test("names the problem", () => {
+    expect(priorityFeeOf([limit(200_000), price(25_000_001n)])).toEqual({ ok: false, problem: "too_high" });
+    expect(priorityFeeOf([price(1n)])).toEqual({ ok: false, problem: "no_limit" });
+    expect(priorityFeeOf([limit(1), limit(1)])).toEqual({ ok: false, problem: "unexpected" });
+    expect(priorityFeeOf([new Uint8Array([1, 0, 0, 0, 0])])).toEqual({ ok: false, problem: "unexpected" });
   });
 });
 

@@ -3,7 +3,11 @@ import { AddressLookupTableAccount, Keypair, PublicKey, SystemProgram, Transacti
 import bs58 from "bs58";
 import { toBase64 } from "@spookpad/core/encoding";
 import type { Invoke } from "../lib/call";
-import { BUY_EXACT_SOL_IN, PUMP_PROGRAM } from "@spookpad/core/pump-tx";
+import { BUY_EXACT_SOL_IN, COMPUTE_BUDGET_PROGRAM, CREATE_V2, PUMP_PROGRAM } from "@spookpad/core/pump-tx";
+import { ASSOCIATED_TOKEN_PROGRAM, buildLaunchTx } from "@spookpad/core/pump-buy";
+import { decodeTransaction } from "@spookpad/core/solana-tx";
+import { fromBase64 } from "@spookpad/core/encoding";
+import fixture from "../../../packages/core/test/fixtures/pumpportal/launch.json";
 import { checkPreparedLaunch, confirmLaunch, launchCoin } from "../lib/launch-coin";
 
 const trader = Keypair.generate();
@@ -17,7 +21,7 @@ const PUMP = new PublicKey(PUMP_PROGRAM);
 
 // A prepared launch like prepare-launch's: a pump.fun create (the mint signs), the dev buy, then the launch fee.
 function preparedMessage(mint: string, o: { devBuy?: number; fee?: number; to?: PublicKey; extra?: TransactionInstruction[] } = {}) {
-  const create = new TransactionInstruction({ programId: PUMP, keys: [{ pubkey: new PublicKey(mint), isSigner: true, isWritable: true }], data: Buffer.alloc(8) });
+  const create = new TransactionInstruction({ programId: PUMP, keys: [{ pubkey: new PublicKey(mint), isSigner: true, isWritable: true }], data: Buffer.from(CREATE_V2) });
   const ixs = [create];
   if (o.devBuy) {
     const data = Buffer.alloc(26);
@@ -174,5 +178,69 @@ describe("checkPreparedLaunch", () => {
     await expect(launchCoin({ invoke, wait: async () => {}, lookupTable: noTables, signWithWallet: async (t) => { signs++; return t; }, send: async () => "x" },
       { ...shown, devBuyLamports: 0 })).rejects.toThrow(/didn't match what SpookPad showed: the launch fee isn't the one shown \(reload the page to see the current fee\)\. Nothing was signed\./);
     expect(signs).toBe(0);
+  });
+});
+
+describe("checkPreparedLaunch: only the expected programs and instructions", () => {
+  const mint = Keypair.generate().publicKey.toBase58();
+  const want = (devBuyLamports = 0) => ({ trader: trader.publicKey.toBase58(), treasury: treasury.toBase58(), launchFeeLamports: FEE, devBuyLamports });
+  const check = (o: Parameters<typeof preparedMessage>[1], devBuy = 0) =>
+    checkPreparedLaunch(VersionedTransaction.deserialize(Buffer.from(preparedTx(mint, o), "base64")), want(devBuy), noTables);
+  const ix = (programId: PublicKey, data: number[]) => new TransactionInstruction({ programId, keys: [], data: Buffer.from(data) });
+  const CB = new PublicKey(COMPUTE_BUDGET_PROGRAM);
+  const ATA = new PublicKey(ASSOCIATED_TOKEN_PROGRAM);
+  const limit = (n: number) => { const b = Buffer.alloc(5); b[0] = 2; b.writeUInt32LE(n, 1); return [...b]; };
+  const price = (n: bigint) => { const b = Buffer.alloc(9); b[0] = 3; b.writeBigUInt64LE(n, 1); return [...b]; };
+
+  test("refuses any other program", async () => {
+    const other = Keypair.generate().publicKey;
+    expect(await check({ extra: [ix(other, [1])] })).toBe(`it calls an unexpected program (${other.toBase58()}).`);
+  });
+  test("pump.fun: exactly one create_v2, no other pump.fun action", async () => {
+    expect(await check({ extra: [ix(PUMP, [...CREATE_V2])] })).toMatch(/exactly one coin/);
+    expect(await check({ extra: [ix(PUMP, [9, 9, 9, 9, 9, 9, 9, 9])] })).toMatch(/unexpected pump\.fun instruction/);
+  });
+  test("pump.fun: at most one dev buy", async () => {
+    const buy = Buffer.alloc(26);
+    buy.set(BUY_EXACT_SOL_IN, 0);
+    buy.writeBigUInt64LE(5_000n, 8);
+    expect(await check({ devBuy: 5_000, extra: [ix(PUMP, [...buy])] }, 5_000)).toMatch(/dev buy/);
+  });
+  test("ComputeBudget: the server's priority-fee rules and cap", async () => {
+    expect(await check({ extra: [ix(CB, limit(200_000)), ix(CB, price(25_000_000n))] })).toBeNull(); // exactly the cap
+    expect(await check({ extra: [ix(CB, limit(200_000)), ix(CB, price(25_000_001n))] })).toMatch(/network fee is too high/);
+    expect(await check({ extra: [ix(CB, price(1n))] })).toMatch(/unexpected network fee settings/);
+    expect(await check({ extra: [ix(CB, [1, 0, 0, 0, 0])] })).toMatch(/unexpected network fee settings/);
+  });
+  test("Associated Token: only createIdempotent", async () => {
+    expect(await check({ extra: [ix(ATA, [1])] })).toBeNull();
+    expect(await check({ extra: [ix(ATA, [])] })).toMatch(/unexpected token-account instruction/);
+    expect(await check({ extra: [ix(ATA, [2])] })).toMatch(/unexpected token-account instruction/);
+  });
+  test("System: only the transfer to the treasury", async () => {
+    const assign = SystemProgram.assign({ accountPubkey: trader.publicKey, programId: Keypair.generate().publicKey });
+    expect(await check({ extra: [assign] })).toMatch(/unexpected System instruction/);
+  });
+});
+
+// The live PumpPortal create (packages/core/test/fixtures/pumpportal/launch.json) turned into a launch exactly as
+// prepare-launch does (buildLaunchTx), then checked as the browser checks it.
+describe("checkPreparedLaunch on the live PumpPortal fixture", () => {
+  const f = fixture as { creator: string; mint: string; tx: string; tables: Record<string, string[]> };
+  const tables = Object.fromEntries(Object.entries(f.tables).map(([k, addresses]) => [k, new AddressLookupTableAccount({
+    key: new PublicKey(k), state: { deactivationSlot: 2n ** 64n - 1n, lastExtendedSlot: 0, lastExtendedSlotStartIndex: 0, addresses: addresses.map((a) => new PublicKey(a)) },
+  })]));
+  const lookup = async (k: PublicKey) => tables[k.toBase58()] ?? null;
+  const FEE_002 = 20_000_000;
+  const built = (devBuy: number) => VersionedTransaction.deserialize(buildLaunchTx(decodeTransaction(fromBase64(f.tx)), f.tables, {
+    trader: f.creator, mint: f.mint, devBuyLamports: BigInt(devBuy), treasury: treasury.toBase58(), launchFeeLamports: BigInt(FEE_002),
+  }));
+  const want = (devBuy: number, fee = FEE_002) => ({ trader: f.creator, treasury: treasury.toBase58(), launchFeeLamports: fee, devBuyLamports: devBuy });
+
+  test.each([0, 10_000_000])("accepts it with a dev buy of %i lamports and a 0.02 SOL fee", async (devBuy) => {
+    expect(await checkPreparedLaunch(built(devBuy), want(devBuy), lookup)).toBeNull();
+  });
+  test("refuses it when the fee shown is one lamport more", async () => {
+    expect(await checkPreparedLaunch(built(10_000_000), want(10_000_000, FEE_002 + 1), lookup)).toMatch(/launch fee/);
   });
 });
