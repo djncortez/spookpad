@@ -4,7 +4,7 @@ import { feeMemo } from "@spookpad/core/fee-check";
 import type { Invoke } from "./call";
 import { StillWaiting, type Expiry } from "./pending";
 
-export type GenerationState = "awaiting_payment" | "paid" | "generating" | "ready" | "failed";
+export type GenerationState = "awaiting_payment" | "paid" | "generating" | "ready" | "failed" | "expired";
 export interface Generation {
   id: string;
   draft_id: string;
@@ -15,7 +15,17 @@ export interface Generation {
   error: string | null;
   attempts: number;
   fee_lamports: number;
+  updated_at?: string; // v_my_generations: when the row last changed (the 3-minute takeover clock of begin_attempt)
   launched?: boolean;
+}
+
+// An AI attempt whose Edge Function died leaves the costume "generating"; after 3 minutes without a change the server
+// lets the free retry take it over (begin_attempt). Milliseconds until then (0 = can be retried now; null = not stuck).
+export const STUCK_MS = 3 * 60_000;
+export function msUntilRetryable(g: Pick<Generation, "state" | "updated_at">, now: number): number | null {
+  if (g.state !== "generating" || !g.updated_at) return null;
+  const at = Date.parse(g.updated_at);
+  return Number.isFinite(at) ? Math.max(0, at + STUCK_MS - now) : null;
 }
 export type SummonStep = "uploading" | "paying" | "brewing";
 export interface SummonDeps {
@@ -30,7 +40,9 @@ export interface SummonDeps {
 const POLL_MS = 2000;
 const POLL_TRIES = 45; // about 90 seconds
 
-export async function summonCostume(d: SummonDeps, p: { draftId: string; costume: string; imageBase64: string; feeLamports: number }): Promise<Generation> {
+// p.treasury is SpookPad's treasury as configured in the site (NEXT_PUBLIC_TREASURY_ADDRESS): the fee is never paid
+// anywhere else, whatever the server answers.
+export async function summonCostume(d: SummonDeps, p: { draftId: string; costume: string; imageBase64: string; feeLamports: number; treasury: string }): Promise<Generation> {
   d.onStep?.("uploading");
   const start = await d.invoke<{ generation: Generation; fee_lamports: number; treasury: string; memo: string }>("costume", {
     action: "start", draft_id: p.draftId, costume: p.costume, image: p.imageBase64,
@@ -38,6 +50,9 @@ export async function summonCostume(d: SummonDeps, p: { draftId: string; costume
   if (start.generation.state !== "awaiting_payment") return start.generation; // a free costume
   // Never sign what the server did not promise: the memo must name this generation and the fee must be the one shown.
   const lamports = Number(start.fee_lamports);
+  if (!p.treasury || start.treasury !== p.treasury) {
+    throw new Error("The costume fee would go to a wallet that isn't SpookPad's treasury, so nothing was sent.");
+  }
   if (start.memo !== feeMemo(start.generation.id)) throw new Error("The payment details didn't match this costume, so nothing was sent. Try again.");
   if (!Number.isSafeInteger(lamports) || lamports <= 0 || lamports !== p.feeLamports) {
     throw new Error("The costume fee changed from the one shown, so nothing was sent. Reload the page and try again.");

@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { Invoke } from "../lib/call";
 import { ApiError } from "../lib/functions";
 import { checkPending, StillWaiting } from "../lib/pending";
-import { finishPayment, summonCostume, type Generation } from "../lib/summon";
+import { finishPayment, msUntilRetryable, summonCostume, type Generation } from "../lib/summon";
 
 const gen = (state: Generation["state"], extra: Partial<Generation> = {}): Generation => ({
   id: "g1", draft_id: "d", costume: "ghost", state, original_path: "originals/g1.png", result_path: state === "ready" ? "costumes/g1.png" : null,
@@ -27,7 +27,7 @@ describe("summonCostume", () => {
     const g = await summonCostume({
       invoke, wait: async () => {}, onStep: (s) => steps.push(s), remember: (id, sig, exp) => remembered.push([id, sig, exp.blockhash]),
       prepareFee: async (p) => { paid.push(p); return { signature: "SIG", expiry: EXP, send: async () => {} }; },
-    }, { draftId: "d", costume: "ghost", imageBase64: "AAAA", feeLamports: 1_000_000 });
+    }, { draftId: "d", costume: "ghost", imageBase64: "AAAA", feeLamports: 1_000_000, treasury: "T" });
     expect(g.state).toBe("ready");
     expect(paid).toEqual([{ treasury: "T", lamports: 1_000_000, memo: "spookpad:g1" }]);
     expect(remembered).toEqual([["g1", "SIG", "BH"]]);
@@ -38,14 +38,14 @@ describe("summonCostume", () => {
   test("a free costume comes back from start without a payment", async () => {
     const invoke = (async () => startAnswer(gen("ready"))) as Invoke;
     const g = await summonCostume({ invoke, wait: async () => {}, prepareFee: async () => { throw new Error("must not pay"); } },
-      { draftId: "d", costume: "ghost", imageBase64: "AAAA", feeLamports: 1_000_000 });
+      { draftId: "d", costume: "ghost", imageBase64: "AAAA", feeLamports: 1_000_000, treasury: "T" });
     expect(g.state).toBe("ready");
   });
 
   test("gives up waiting with a message that says no second payment is needed", async () => {
     const invoke = (async (_n: string, body: { action: string }) =>
       body.action === "start" ? startAnswer(gen("awaiting_payment")) : { status: "waiting" }) as Invoke;
-    await expect(summonCostume({ invoke, wait: async () => {}, prepareFee: fee() }, { draftId: "d", costume: "ghost", imageBase64: "AAAA", feeLamports: 1_000_000 }))
+    await expect(summonCostume({ invoke, wait: async () => {}, prepareFee: fee() }, { draftId: "d", costume: "ghost", imageBase64: "AAAA", feeLamports: 1_000_000, treasury: "T" }))
       .rejects.toBeInstanceOf(StillWaiting);
   });
 
@@ -57,20 +57,20 @@ describe("summonCostume", () => {
       return { status: "waiting" };
     }) as Invoke;
     await expect(summonCostume({ invoke, wait: async () => {}, prepareFee: fee(), remember: () => { order.push("remember"); } },
-      { draftId: "d", costume: "ghost", imageBase64: "AAAA", feeLamports: 1_000_000 })).rejects.toThrow(/won't pay twice/);
+      { draftId: "d", costume: "ghost", imageBase64: "AAAA", feeLamports: 1_000_000, treasury: "T" })).rejects.toThrow(/won't pay twice/);
     expect(order[0]).toBe("remember");
   });
 
   test("refuses to sign when the memo does not name the generation", async () => {
     const invoke = (async () => ({ ...startAnswer(gen("awaiting_payment")), memo: "spookpad:other" })) as Invoke;
     await expect(summonCostume({ invoke, wait: async () => {}, prepareFee: async () => { throw new Error("must not pay"); } },
-      { draftId: "d", costume: "ghost", imageBase64: "AAAA", feeLamports: 1_000_000 })).rejects.toThrow(/nothing was sent/);
+      { draftId: "d", costume: "ghost", imageBase64: "AAAA", feeLamports: 1_000_000, treasury: "T" })).rejects.toThrow(/nothing was sent/);
   });
 
   test("refuses to sign when the fee is not the one shown", async () => {
     const invoke = (async () => ({ ...startAnswer(gen("awaiting_payment")), fee_lamports: 9_000_000 })) as Invoke;
     await expect(summonCostume({ invoke, wait: async () => {}, prepareFee: async () => { throw new Error("must not pay"); } },
-      { draftId: "d", costume: "ghost", imageBase64: "AAAA", feeLamports: 1_000_000 })).rejects.toThrow(/nothing was sent/);
+      { draftId: "d", costume: "ghost", imageBase64: "AAAA", feeLamports: 1_000_000, treasury: "T" })).rejects.toThrow(/nothing was sent/);
   });
 
   test("accepts a fee sent as a string and pays a number", async () => {
@@ -78,7 +78,7 @@ describe("summonCostume", () => {
     const invoke = (async (_n: string, b: { action: string }) =>
       b.action === "start" ? { ...startAnswer(gen("awaiting_payment")), fee_lamports: "1000000" } : { generation: gen("ready") }) as Invoke;
     await summonCostume({ invoke, wait: async () => {}, prepareFee: async (p) => { paid.push(p); return fee()(); } },
-      { draftId: "d", costume: "ghost", imageBase64: "AAAA", feeLamports: 1_000_000 });
+      { draftId: "d", costume: "ghost", imageBase64: "AAAA", feeLamports: 1_000_000, treasury: "T" });
     expect(paid).toEqual([{ treasury: "T", lamports: 1_000_000, memo: "spookpad:g1" }]);
   });
 });
@@ -90,7 +90,7 @@ test("the signature is remembered before the fee is sent", async () => {
   await summonCostume({
     invoke, wait: async () => {}, remember: () => { order.push("remember"); },
     prepareFee: fee("SIG", async () => { order.push("send"); }),
-  }, { draftId: "d", costume: "ghost", imageBase64: "AAAA", feeLamports: 1_000_000 });
+  }, { draftId: "d", costume: "ghost", imageBase64: "AAAA", feeLamports: 1_000_000, treasury: "T" });
   expect(order).toEqual(["remember", "send"]);
 });
 
@@ -100,7 +100,7 @@ test("nothing is remembered or sent when the wallet refuses to sign the fee", as
   await expect(summonCostume({
     invoke, wait: async () => {}, remember: () => { order.push("remember"); },
     prepareFee: async () => { throw new Error("rejected"); },
-  }, { draftId: "d", costume: "ghost", imageBase64: "AAAA", feeLamports: 1_000_000 })).rejects.toThrow("rejected");
+  }, { draftId: "d", costume: "ghost", imageBase64: "AAAA", feeLamports: 1_000_000, treasury: "T" })).rejects.toThrow("rejected");
   expect(order).toEqual([]);
 });
 
@@ -163,5 +163,31 @@ describe("checkPending", () => {
   test("a status node that is level or ahead clears", async () => {
     expect(await run(waiting, chain(null, false, { status: 100, hash: 100 }))).toEqual({ kind: "cleared", message: "gone" });
     expect(await run(waiting, chain(null, false, { status: 101, hash: 100 }))).toEqual({ kind: "cleared", message: "gone" });
+  });
+});
+
+describe("treasury check", () => {
+  for (const [label, treasury] of [["another wallet", "EVIL"], ["no configured treasury", ""]] as const) {
+    test(`refuses to sign the fee for ${label}`, async () => {
+      const invoke = (async () => ({ ...startAnswer(gen("awaiting_payment")), treasury: "EVIL" })) as Invoke;
+      await expect(summonCostume({ invoke, wait: async () => {}, prepareFee: async () => { throw new Error("must not pay"); } },
+        { draftId: "d", costume: "ghost", imageBase64: "AAAA", feeLamports: 1_000_000, treasury: label === "another wallet" ? "T" : treasury }))
+        .rejects.toThrow(/isn't SpookPad's treasury/);
+    });
+  }
+});
+
+describe("msUntilRetryable", () => {
+  const at = "2026-10-08T12:00:00.000Z";
+  const t0 = Date.parse(at);
+  test("a generating costume can be retried 3 minutes after its last change", () => {
+    expect(msUntilRetryable({ state: "generating", updated_at: at }, t0 + 60_000)).toBe(120_000);
+    expect(msUntilRetryable({ state: "generating", updated_at: at }, t0 + 180_000)).toBe(0);
+    expect(msUntilRetryable({ state: "generating", updated_at: at }, t0 + 999_000)).toBe(0);
+  });
+  test("other states, or no timestamp, are never stuck", () => {
+    expect(msUntilRetryable({ state: "paid", updated_at: at }, t0 + 999_000)).toBeNull();
+    expect(msUntilRetryable({ state: "generating" }, t0)).toBeNull();
+    expect(msUntilRetryable({ state: "generating", updated_at: "nope" }, t0)).toBeNull();
   });
 });

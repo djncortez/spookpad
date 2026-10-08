@@ -5,7 +5,7 @@ import type { Connection } from "@solana/web3.js";
 import { PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { Buffer } from "buffer";
 import { MEMO_PROGRAM_ID } from "@spookpad/core/fee-check";
-import type { Expiry } from "./pending";
+import { sendRaw, type Expiry } from "./pending";
 
 export function feeTransaction(p: { from: string; treasury: string; lamports: number; memo: string }): Transaction {
   const from = new PublicKey(p.from);
@@ -41,6 +41,6 @@ export async function signFee(
   return {
     signature: bs58.encode(first),
     expiry: { blockhash: signed.recentBlockhash ?? blockhash }, // what the wallet actually signed
-    send: async () => { await d.connection.sendRawTransaction(signed.serialize(), { maxRetries: 5 }); },
+    send: async () => { await sendRaw(d.connection, signed.serialize()); }, // throws NotSent when the node refused it
   };
 }

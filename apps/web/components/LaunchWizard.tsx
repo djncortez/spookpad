@@ -13,9 +13,10 @@ import {
   draftId as savedDraft, forgetLaunch, forgetPayment, newDraft, pendingPayment, rememberLaunch, rememberPayment, sentLaunch as storedLaunch,
   setDraft as saveDraft, type PendingPayment, type SentLaunch,
 } from "@/lib/draft";
+import { publicEnv } from "@/lib/env";
 import { signFee } from "@/lib/fee-tx";
-import { checkPending, isDefinitive, type Expiry } from "@/lib/pending";
-import { solText } from "@/lib/format";
+import { checkPending, isDefinitive, NotSent, sendRaw, type Expiry } from "@/lib/pending";
+import { shortAddress, solText } from "@/lib/format";
 import { prepareImage, type PreparedImage } from "@/lib/image";
 import { confirmLaunch, launchCoin, type LaunchStep } from "@/lib/launch-coin";
 import { fetchCostumes, fetchDraftGenerations, fetchSettings, type Costume, type PublicSettings } from "@/lib/public-data";
@@ -25,6 +26,7 @@ import { GenerationCard } from "./GenerationCard";
 import { WalletButton } from "./WalletButton";
 
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const treasuryText = publicEnv.treasury ? shortAddress(publicEnv.treasury) : "(not set up)";
 const WRONG_WALLET = "Your wallet is on a different account than the one you signed in with. Switch accounts in your wallet and try again.";
 const SUMMON_TEXT: Record<SummonStep, string> = {
   uploading: "Sending your mascot to the cauldron…",
@@ -92,7 +94,7 @@ export function LaunchWizard() {
 
   const refresh = useCallback(async () => {
     if (!draft || !auth.wallet) return;
-    const list = (await fetchDraftGenerations(draft)).filter((g) => g.state !== "awaiting_payment");
+    const list = (await fetchDraftGenerations(draft)).filter((g) => g.state !== "awaiting_payment" && g.state !== "expired");
     if (draftRef.current !== draft) return; // the draft changed while this was loading: its list is not for the current draft
     setGenerations(list);
     const open = (g: Generation) => g.state === "ready" && !g.launched;
@@ -171,9 +173,10 @@ export function LaunchWizard() {
           mine = { generationId, draftId: draftRef.current ?? "", signature, expiry };
           remember(w, generationId, signature, expiry);
         },
-      }, { draftId: draft, costume, imageBase64: image.base64, feeLamports: settings.costume_fee_lamports });
+      }, { draftId: draft, costume, imageBase64: image.base64, feeLamports: settings.costume_fee_lamports, treasury: publicEnv.treasury });
     } catch (e) {
-      if (isDefinitive(e)) resolvePayment(mine, w); // the server said no for good
+      // the server said no for good, or the RPC node refused the fee so it was never sent: nothing to wait for
+      if (isDefinitive(e) || e instanceof NotSent) resolvePayment(mine, w);
       throw e;
     }
     await afterCostume(g, mine, w);
@@ -219,13 +222,15 @@ export function LaunchWizard() {
     if (devBuyProblem) throw new Error(devBuyProblem);
     const signTransaction = wallet.signTransaction;
     if (!signTransaction) throw new Error("Your wallet can't sign this transaction. Try Phantom.");
-    if (!connectedIsSignedIn()) throw new Error(WRONG_WALLET);
+    const trader = auth.wallet;
+    if (!trader || !connectedIsSignedIn()) throw new Error(WRONG_WALLET);
     // launchCoin makes a new mint keypair and a new prepared transaction on every press and keeps neither afterwards,
     // so an earlier prepare (whose pending launch the server abandons) can never be sent.
     let mint: string;
     try {
       mint = await launchCoin({
       invoke, wait, onStep: (s) => setStatus(LAUNCH_TEXT[s]),
+      lookupTable: async (address) => (await connection.getAddressLookupTable(address)).value,
       onSent: (m, sig, expiry) => { // before the send: a reload or crash must find this launch
         const l = { generationId: selected, mint: m, signature: sig, expiry };
         if (auth.wallet) rememberLaunch(auth.wallet, l);
@@ -236,10 +241,14 @@ export function LaunchWizard() {
         if (!connectedIsSignedIn()) throw new Error(WRONG_WALLET); // checked again right before the wallet is asked
         return signTransaction(tx);
       },
-      send: (raw) => connection.sendRawTransaction(raw, { maxRetries: 5 }),
-      }, { generationId: selected, fields: checked.fields, devBuyLamports });
+      send: (raw) => sendRaw(connection, raw), // NotSent when the RPC node refused it (never broadcast)
+      }, {
+        generationId: selected, fields: checked.fields, devBuyLamports,
+        trader, treasury: publicEnv.treasury, launchFeeLamports: settings.launch_fee_lamports,
+      });
     } catch (e) {
-      if (isDefinitive(e) && sentLaunchRef.current) clearLaunch(); // the server said no for good
+      // the server said no for good, or the RPC node refused the transaction so it was never sent
+      if ((isDefinitive(e) || e instanceof NotSent) && sentLaunchRef.current) clearLaunch();
       throw e;
     }
     clearLaunch();
@@ -306,7 +315,12 @@ export function LaunchWizard() {
       <section className="card grid gap-4 p-5">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-xl font-bold">2. Pick a costume</h2>
-          {settings && <p className="text-sm text-muted">Each summon costs {solText(settings.costume_fee_lamports)}. A failed summon is retried for free.</p>}
+          {settings && (
+            <p className="text-sm text-muted">
+              Each summon costs {solText(settings.costume_fee_lamports)}, paid to SpookPad&apos;s treasury{" "}
+              <span className="font-mono" title={publicEnv.treasury}>{treasuryText}</span>. A failed summon is retried for free.
+            </p>
+          )}
         </div>
         <CostumePicker costumes={costumes} value={costume} onChange={setCostume} disabled={busy} />
         {paused && <p className="text-blood">{paused}</p>}
@@ -333,7 +347,9 @@ export function LaunchWizard() {
         {settings && (
           <p className="text-sm text-muted">
             You sign one transaction: it creates your coin with you as the creator (pump.fun creator fees go to you), buys your dev buy
-            straight from pump.fun for exactly the SOL you enter, and pays the SpookPad launch fee of {solText(settings.launch_fee_lamports)}.
+            straight from pump.fun for exactly the SOL you enter, and pays the SpookPad launch fee of {solText(settings.launch_fee_lamports)} to
+            SpookPad&apos;s treasury <span className="font-mono" title={publicEnv.treasury}>{treasuryText}</span>. SpookPad checks
+            the transaction before your wallet sees it.
           </p>
         )}
         {settings?.launches_paused && <p className="text-blood">Launching is paused right now. Try again soon.</p>}

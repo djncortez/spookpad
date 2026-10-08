@@ -6,6 +6,7 @@
 // getSignatureStatuses shows nothing (or an on-chain error) from a node that is at least as far along as the one that
 // judged the blockhash (status context.slot >= blockhash context.slot). A transaction can land between the two calls,
 // and nodes can lag, so anything else keeps the record.
+import { SendTransactionError, type Connection } from "@solana/web3.js";
 import { ApiError } from "./functions";
 
 export interface Expiry {
@@ -19,6 +20,23 @@ export interface ChainView {
 
 // The server was asked for the result for the whole wait and still said "waiting".
 export class StillWaiting extends Error {}
+
+// The RPC node refused the transaction (preflight simulation failed, or another JSON-RPC error answer), so it was never
+// broadcast: the remembered record can be forgotten at once instead of waiting ~90 s for the blockhash to expire.
+// Network failures (no answer) are NOT this: the transaction may have gone out.
+export class NotSent extends Error {}
+
+export async function sendRaw(connection: Pick<Connection, "sendRawTransaction">, raw: Uint8Array): Promise<string> {
+  try {
+    return await connection.sendRawTransaction(raw, { maxRetries: 5 });
+  } catch (e) {
+    if (e instanceof SendTransactionError) {
+      const why = (e.transactionError.message || "").replace(/\.$/, "");
+      throw new NotSent(`Solana refused the transaction${why ? ` (${why})` : ""}, so nothing was sent. You can try again.`);
+    }
+    throw e;
+  }
+}
 
 export const isDefinitive = (e: unknown): e is ApiError => e instanceof ApiError && (e.status === 400 || e.status === 404 || e.status === 409);
 
