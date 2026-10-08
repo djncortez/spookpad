@@ -53,7 +53,15 @@ describe("lock-down", () => {
         await expect(db.as(role, sub, (tx) => tx.unsafe(`select * from public.${t} limit 1`)), `${role} reading ${t}`).rejects.toThrow(/permission denied/);
       }
     }
-    await expect(db.as("authenticated", id, (tx) => tx`select pause_for_low_credit()`)).rejects.toThrow(/permission denied/);
+    const fns = await db.sql`select p.oid::regprocedure::text as sig from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public'`;
+    expect(fns.length).toBeGreaterThan(0);
+    for (const { sig } of fns) {
+      for (const role of ["anon", "authenticated"]) {
+        const [{ ok }] = await db.sql`select has_function_privilege(${role}, ${sig}, 'execute') as ok`;
+        expect(ok, `${role} executing ${sig}`).toBe(false);
+      }
+    }
   });
   test("browsers can read the public views", async () => {
     for (const v of ["v_settings_public", "v_costumes", "v_graveyard"]) {

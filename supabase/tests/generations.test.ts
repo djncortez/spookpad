@@ -66,6 +66,19 @@ describe("generation lifecycle", () => {
     expect(again.attempts).toBe(2);
   });
 
+  test("a stale third attempt is marked failed and surfaces as refundable", async () => {
+    const g = await start();
+    await db.sql`select claim_payment(${sig(7)}, ${g.id}::uuid, ${W1}, 1000000)`;
+    await db.sql`select begin_attempt(${g.id}::uuid, ${W1})`;
+    await db.sql`update generations set attempts = 3, updated_at = now() - interval '4 minutes' where id = ${g.id}`;
+    const before = (await db.sql`select admin_overview() as o`)[0].o.failed_unrefunded;
+    const [r] = await db.sql`select * from begin_attempt(${g.id}::uuid, ${W1})`;
+    expect(r).toMatchObject({ state: "failed", attempts: 3 });
+    expect((await db.sql`select state from generations where id = ${g.id}`)[0].state).toBe("failed");
+    expect((await db.sql`select admin_overview() as o`)[0].o.failed_unrefunded).toBe(before + 1);
+    await db.sql`select admin_mark_refunded(${g.id}::uuid, ${W1})`;
+  });
+
   test("paused, unknown costume, rate limit", async () => {
     await db.sql`update settings set generations_paused = true where id`;
     expect(await msg(start())).toBe("paused");
@@ -73,6 +86,17 @@ describe("generation lifecycle", () => {
     expect(await msg(start(W2, "zombie"))).toBe("bad_costume");
     await start(W2);
     expect(await msg(start(W2))).toBe("rate_limited");
+    await db.sql`update settings set max_generations_per_hour = 20 where id`;
+  });
+
+  test("the hourly cap counts earlier starts for the wallet", async () => {
+    await db.sql`update settings set max_generations_per_hour = 2 where id`;
+    const W3 = "5ZiE3vAkrdXBgyFL7KqG3RoEGBws4CjRcXVbABDLZTgx";
+    await db.sql`insert into auth.users (raw_user_meta_data, raw_app_meta_data) values
+      (${db.sql.json({ sub: `web3:solana:${W3}` })}, ${db.sql.json({ provider: "web3" })})`;
+    await start(W3);
+    await start(W3);
+    expect(await msg(start(W3))).toBe("rate_limited");
     await db.sql`update settings set max_generations_per_hour = 20 where id`;
   });
 

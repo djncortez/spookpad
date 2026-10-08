@@ -101,7 +101,8 @@ create table admin_log (
 -- public, unguessable paths: art/originals/<uuid>.<ext> and art/costumes/<uuid>.<ext>
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('art', 'art', true, 8388608, array['image/png', 'image/jpeg', 'image/webp'])
-on conflict (id) do nothing;
+on conflict (id) do update set public = excluded.public, file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
 
 -- ===== wallet sign-up =====
 -- A Supabase "Sign in with Web3" (Solana) user gets its SpookPad row. raw_user_meta_data is client-writable, so it is
@@ -134,6 +135,8 @@ begin
   select * into s from settings;
   if s.generations_paused then raise exception 'paused'; end if;
   if not exists (select 1 from costumes where slug = p_costume and enabled) then raise exception 'bad_costume'; end if;
+  -- serialise per wallet so concurrent starts can't slip past the hourly cap
+  perform 1 from users where wallet = p_wallet for update;
   if (select count(*) from generations where wallet = p_wallet and created_at > now() - interval '1 hour') >= s.max_generations_per_hour then
     raise exception 'rate_limited';
   end if;
@@ -171,7 +174,16 @@ begin
   if not (g.state = 'paid' or (g.state = 'generating' and g.updated_at < now() - interval '3 minutes')) then
     raise exception 'not_paid';
   end if;
-  if g.attempts >= 3 then raise exception 'no_attempts'; end if;
+  if g.attempts >= 3 then
+    if g.state = 'generating' then
+      -- the third attempt died (stale takeover). Raising would roll this back, so mark it failed and return the failed
+      -- row without raising: callers see state = 'failed' (not 'generating') and must not start an AI attempt.
+      update generations set state = 'failed', error = coalesce(error, 'attempt_timeout'), updated_at = now()
+      where id = p_generation returning * into g;
+      return g;
+    end if;
+    raise exception 'no_attempts';
+  end if;
   update generations set state = 'generating', attempts = attempts + 1, error = null, updated_at = now()
   where id = p_generation returning * into g;
   return g;
@@ -222,14 +234,24 @@ end $$;
 
 create or replace function public.confirm_launch(p_mint text, p_wallet text, p_signature text)
 returns launches language plpgsql security definer set search_path = public as $$
-declare l launches;
+declare l launches; gid uuid; cname text;
 begin
+  -- lock order matches begin_launch: generation first, then launches
+  select generation_id into gid from launches where mint = p_mint;
+  if not found then raise exception 'not_found'; end if;
+  perform 1 from generations where id = gid for update;
   select * into l from launches where mint = p_mint for update;
   if not found or l.wallet <> p_wallet then raise exception 'not_found'; end if;
   if l.state = 'live' then return l; end if;
   if exists (select 1 from launches where generation_id = l.generation_id and state = 'live') then raise exception 'already_launched'; end if;
   update launches set state = 'abandoned' where generation_id = l.generation_id and state = 'pending' and mint <> p_mint;
-  update launches set state = 'live', create_signature = p_signature, launched_at = now() where mint = p_mint returning * into l;
+  begin
+    update launches set state = 'live', create_signature = p_signature, launched_at = now() where mint = p_mint returning * into l;
+  exception when unique_violation then
+    get stacked diagnostics cname = constraint_name;
+    if cname = 'launches_one_live_per_generation' then raise exception 'already_launched'; end if;
+    raise exception 'signature_used';
+  end;
   return l;
 end $$;
 

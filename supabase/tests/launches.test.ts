@@ -61,6 +61,15 @@ describe("launches", () => {
     expect(await msg(db.sql`select confirm_launch(${MINT_A}, ${W2}, ${SIG_A})`)).toBe("not_found");
   });
 
+  test("a create signature can't be reused on another mint", async () => {
+    const other = crypto.randomUUID();
+    await db.sql`select start_generation(${other}::uuid, ${W1}, ${crypto.randomUUID()}::uuid, 'ghost', ${`originals/${other}.png`})`;
+    await db.sql`update generations set state = 'ready', result_path = ${`costumes/${other}.png`} where id = ${other}`;
+    await begin(MINT_C, other);
+    expect(await msg(db.sql`select confirm_launch(${MINT_C}, ${W1}, ${SIG_A})`)).toBe("signature_used");
+    expect((await db.sql`select state from launches where mint = ${MINT_C}`)[0].state).toBe("pending");
+  });
+
   test("launching can be paused", async () => {
     await db.sql`update settings set launches_paused = true where id`;
     expect(await msg(begin(MINT_C, notReady))).toBe("paused");
