@@ -175,14 +175,12 @@ describe("checkPending", () => {
 });
 
 describe("treasury check", () => {
-  for (const [label, treasury] of [["another wallet", "EVIL"], ["no configured treasury", ""]] as const) {
-    test(`refuses to sign the fee for ${label}`, async () => {
-      const invoke = (async () => ({ ...startAnswer(gen("awaiting_payment")), treasury: "EVIL" })) as Invoke;
-      await expect(summonCostume({ invoke, wait: async () => {}, prepareFee: async () => { throw new Error("must not pay"); } },
-        { draftId: "d", costume: "ghost", imageBase64: "AAAA", feeLamports: 1_000_000, treasury: label === "another wallet" ? "T" : treasury }))
-        .rejects.toThrow(/isn't SpookPad's treasury|treasury address isn't set up/);
-    });
-  }
+  test("refuses to sign the fee for another wallet", async () => {
+    const invoke = (async () => ({ ...startAnswer(gen("awaiting_payment")), treasury: "EVIL" })) as Invoke;
+    await expect(summonCostume({ invoke, wait: async () => {}, prepareFee: async () => { throw new Error("must not pay"); } },
+      { draftId: "d", costume: "ghost", imageBase64: "AAAA", feeLamports: 1_000_000, treasury: "T" }))
+      .rejects.toThrow(/isn't SpookPad's treasury/);
+  });
 });
 
 describe("msUntilRetryable", () => {

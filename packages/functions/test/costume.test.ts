@@ -371,4 +371,17 @@ describe("costume: round 2 (a payment that lands for an expired costume)", () =>
     expect(await t.call({ action: "pay", generation_id: GEN1, signature: SIG })).toEqual({ status: 409, body: { error: REFUND } });
     expect(t.gens.get(GEN1)).toMatchObject({ state: "failed", error: "expired_paid" });
   });
+  test("a concurrent duplicate that finds it already recorded gets the same answer", async () => {
+    const t = setup();
+    await t.startOne();
+    t.gens.get(GEN1)!.state = "expired";
+    t.deps.claimExpiredPayment = async () => { Object.assign(t.gens.get(GEN1)!, { state: "failed", error: "expired_paid" }); throw new StoreError("not_awaiting"); };
+    expect(await t.call({ action: "pay", generation_id: GEN1, signature: SIG })).toEqual({ status: 409, body: { error: REFUND } });
+  });
+  test("a retry on an expired-paid costume gets the refund answer, not 'failed 3 times'", async () => {
+    const t = setup();
+    await t.startOne();
+    Object.assign(t.gens.get(GEN1)!, { state: "failed", error: "expired_paid" });
+    expect(await t.call({ action: "retry", generation_id: GEN1 })).toEqual({ status: 409, body: { error: REFUND } });
+  });
 });

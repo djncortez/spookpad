@@ -5,7 +5,7 @@
 // pending launch on the server, so an older prepared transaction is never reused or sent.
 import { Keypair, SystemProgram, VersionedTransaction, type AddressLookupTableAccount, type PublicKey } from "@solana/web3.js";
 import { fromBase64 } from "@spookpad/core/encoding";
-import { ASSOCIATED_TOKEN_PROGRAM } from "@spookpad/core/pump-buy";
+import { associatedTokenAddress, ASSOCIATED_TOKEN_PROGRAM, TOKEN_2022_PROGRAM } from "@spookpad/core/pump-buy";
 import { BUY_EXACT_SOL_IN, COMPUTE_BUDGET_PROGRAM, CREATE_V2, priorityFeeOf, PUMP_PROGRAM } from "@spookpad/core/pump-tx";
 import type { CoinFields } from "@spookpad/core/validate";
 import bs58 from "bs58";
@@ -29,6 +29,7 @@ const POLL_TRIES = 45;
 // What the trader was shown: their wallet, SpookPad's treasury (NEXT_PUBLIC_TREASURY_ADDRESS), the launch fee, the dev buy.
 export interface LaunchExpect {
   trader: string;
+  mint: string; // the coin's mint, made in the browser
   treasury: string;
   launchFeeLamports: number;
   devBuyLamports: number;
@@ -41,7 +42,7 @@ const startsWith = (data: Uint8Array, prefix: number[]) => data.length >= prefix
 // pump.fun, System, ComputeBudget and Associated Token; its only System instructions are transfers from the trader to
 // the configured treasury adding up to exactly the launch fee shown; pump.fun gets exactly one create_v2 and, only when
 // the dev buy shown is above 0, one buy_exact_sol_in spending exactly that; the priority fee passes the same check as
-// the server's (priorityFeeOf, capped at MAX_PRIORITY_FEE_LAMPORTS); Associated Token only createIdempotent. Accounts
+// the server's (priorityFeeOf, capped at MAX_PRIORITY_FEE_LAMPORTS); Associated Token only createIdempotent, at most once, only with a dev buy, for the trader's own Token-2022 account for this mint; the dev buy must be for this mint and trader. Accounts
 // loaded from lookup tables are resolved, so a fee or a treasury loaded from a table is checked too. Returns a problem,
 // or null.
 export async function checkPreparedLaunch(tx: VersionedTransaction, want: LaunchExpect, lookupTable: LaunchDeps["lookupTable"]): Promise<string | null> {
@@ -59,6 +60,7 @@ export async function checkPreparedLaunch(tx: VersionedTransaction, want: Launch
   const key = (i: number) => keys.get(i)?.toBase58();
   let toTreasury = 0n;
   let creates = 0;
+  let atas = 0;
   const buys: bigint[] = [];
   const budget: Uint8Array[] = [];
   for (const ix of msg.compiledInstructions) {
@@ -72,12 +74,18 @@ export async function checkPreparedLaunch(tx: VersionedTransaction, want: Launch
       if (startsWith(data, CREATE_V2)) creates++;
       else if (startsWith(data, BUY_EXACT_SOL_IN)) {
         if (data.length < 16) return "its dev buy can't be read.";
+        if (key(ix.accountKeyIndexes[2]) !== want.mint || key(ix.accountKeyIndexes[6]) !== want.trader) return "its dev buy is for a different coin or wallet.";
         buys.push(u64At(data, 8));
       } else return "it has an unexpected pump.fun instruction.";
     } else if (program === COMPUTE_BUDGET_PROGRAM) {
       budget.push(data);
     } else if (program === ASSOCIATED_TOKEN_PROGRAM) {
       if (data.length !== 1 || data[0] !== 1) return "it has an unexpected token-account instruction.";
+      // The only one allowed is the trader's own Token-2022 account for this coin, made for the dev buy.
+      const a = ix.accountKeyIndexes.map(key);
+      const mine = a.length === 6 && a[0] === want.trader && a[1] === associatedTokenAddress(want.trader, want.mint) && a[2] === want.trader
+        && a[3] === want.mint && a[4] === SystemProgram.programId.toBase58() && a[5] === TOKEN_2022_PROGRAM;
+      if (++atas > 1 || want.devBuyLamports <= 0 || !mine) return "it creates a token account that isn't yours for this coin.";
     } else {
       return `it calls an unexpected program (${program}).`;
     }
@@ -91,7 +99,7 @@ export async function checkPreparedLaunch(tx: VersionedTransaction, want: Launch
   return null;
 }
 
-export async function launchCoin(d: LaunchDeps, p: { generationId: string; fields: CoinFields; devBuyLamports: number } & Omit<LaunchExpect, "devBuyLamports">): Promise<string> {
+export async function launchCoin(d: LaunchDeps, p: { generationId: string; fields: CoinFields; devBuyLamports: number } & Omit<LaunchExpect, "devBuyLamports" | "mint">): Promise<string> {
   const mint = Keypair.generate();
   const address = mint.publicKey.toBase58();
   d.onStep?.("preparing");
@@ -99,7 +107,7 @@ export async function launchCoin(d: LaunchDeps, p: { generationId: string; field
     generation_id: p.generationId, mint: address, ...p.fields, dev_buy_lamports: p.devBuyLamports,
   });
   const prepared = VersionedTransaction.deserialize(fromBase64(prep.transaction));
-  const problem = await checkPreparedLaunch(prepared, { trader: p.trader, treasury: p.treasury, launchFeeLamports: p.launchFeeLamports, devBuyLamports: p.devBuyLamports }, d.lookupTable);
+  const problem = await checkPreparedLaunch(prepared, { trader: p.trader, mint: address, treasury: p.treasury, launchFeeLamports: p.launchFeeLamports, devBuyLamports: p.devBuyLamports }, d.lookupTable);
   if (problem) throw new Error(`The launch transaction didn't match what SpookPad showed: ${problem} Nothing was signed.`);
   d.onStep?.("signing");
   const signed = await d.signWithWallet(prepared); // the wallet signs first

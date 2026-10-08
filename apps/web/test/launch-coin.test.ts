@@ -4,7 +4,7 @@ import bs58 from "bs58";
 import { toBase64 } from "@spookpad/core/encoding";
 import type { Invoke } from "../lib/call";
 import { BUY_EXACT_SOL_IN, COMPUTE_BUDGET_PROGRAM, CREATE_V2, PUMP_PROGRAM } from "@spookpad/core/pump-tx";
-import { ASSOCIATED_TOKEN_PROGRAM, buildLaunchTx } from "@spookpad/core/pump-buy";
+import { ASSOCIATED_TOKEN_PROGRAM, associatedTokenAddress, buildLaunchTx, TOKEN_2022_PROGRAM } from "@spookpad/core/pump-buy";
 import { decodeTransaction } from "@spookpad/core/solana-tx";
 import { fromBase64 } from "@spookpad/core/encoding";
 import fixture from "../../../packages/core/test/fixtures/pumpportal/launch.json";
@@ -20,14 +20,20 @@ const noTables = async () => null;
 const PUMP = new PublicKey(PUMP_PROGRAM);
 
 // A prepared launch like prepare-launch's: a pump.fun create (the mint signs), the dev buy, then the launch fee.
-function preparedMessage(mint: string, o: { devBuy?: number; fee?: number; to?: PublicKey; extra?: TransactionInstruction[] } = {}) {
+function preparedMessage(mint: string, o: { devBuy?: number; fee?: number; to?: PublicKey; extra?: TransactionInstruction[]; noAta?: boolean; buyMint?: PublicKey; buyUser?: PublicKey } = {}) {
   const create = new TransactionInstruction({ programId: PUMP, keys: [{ pubkey: new PublicKey(mint), isSigner: true, isWritable: true }], data: Buffer.from(CREATE_V2) });
   const ixs = [create];
   if (o.devBuy) {
+    const m = new PublicKey(mint);
+    const ro = (pubkey: PublicKey) => ({ pubkey, isSigner: false, isWritable: false });
+    if (!o.noAta) ixs.push(new TransactionInstruction({ programId: new PublicKey(ASSOCIATED_TOKEN_PROGRAM), data: Buffer.from([1]), keys: [
+      { pubkey: trader.publicKey, isSigner: true, isWritable: true }, { pubkey: new PublicKey(associatedTokenAddress(trader.publicKey.toBase58(), mint)), isSigner: false, isWritable: true },
+      ro(trader.publicKey), ro(m), ro(SystemProgram.programId), ro(new PublicKey(TOKEN_2022_PROGRAM)),
+    ] }));
     const data = Buffer.alloc(26);
     data.set(BUY_EXACT_SOL_IN, 0);
     data.writeBigUInt64LE(BigInt(o.devBuy), 8);
-    ixs.push(new TransactionInstruction({ programId: PUMP, keys: [{ pubkey: trader.publicKey, isSigner: true, isWritable: true }], data }));
+    ixs.push(new TransactionInstruction({ programId: PUMP, keys: [0, 1, 2, 3, 4, 5].map((i) => ro(i === 2 ? (o.buyMint ?? m) : Keypair.generate().publicKey)).concat([{ pubkey: o.buyUser ?? trader.publicKey, isSigner: true, isWritable: true }]), data }));
   }
   if ((o.fee ?? FEE) > 0) ixs.push(SystemProgram.transfer({ fromPubkey: trader.publicKey, toPubkey: o.to ?? treasury, lamports: o.fee ?? FEE }));
   ixs.push(...(o.extra ?? []));
@@ -138,7 +144,7 @@ describe("onSent", () => {
 describe("checkPreparedLaunch", () => {
   const mint = Keypair.generate().publicKey.toBase58();
   const tx = (o: Parameters<typeof preparedMessage>[1] = {}) => VersionedTransaction.deserialize(Buffer.from(preparedTx(mint, o), "base64"));
-  const want = (devBuyLamports = 0) => ({ trader: trader.publicKey.toBase58(), treasury: treasury.toBase58(), launchFeeLamports: FEE, devBuyLamports });
+  const want = (devBuyLamports = 0) => ({ mint, trader: trader.publicKey.toBase58(), treasury: treasury.toBase58(), launchFeeLamports: FEE, devBuyLamports });
 
   test("accepts the launch fee to the treasury and the dev buy shown", async () => {
     expect(await checkPreparedLaunch(tx({ devBuy: 5_000 }), want(5_000), noTables)).toBeNull();
@@ -156,7 +162,7 @@ describe("checkPreparedLaunch", () => {
   test("refuses a dev buy that isn't the one entered", async () => {
     expect(await checkPreparedLaunch(tx({ devBuy: 6_000 }), want(5_000), noTables)).toMatch(/dev buy/);
     expect(await checkPreparedLaunch(tx(), want(5_000), noTables)).toMatch(/dev buy/);
-    expect(await checkPreparedLaunch(tx({ devBuy: 5_000 }), want(0), noTables)).toMatch(/dev buy/);
+    expect(await checkPreparedLaunch(tx({ devBuy: 5_000 }), want(0), noTables)).toMatch(/dev buy|token account/);
   });
   test("refuses when no treasury is configured, or someone else pays", async () => {
     expect(await checkPreparedLaunch(tx(), { ...want(), treasury: "" }, noTables)).toMatch(/treasury address isn't set up/);
@@ -183,7 +189,7 @@ describe("checkPreparedLaunch", () => {
 
 describe("checkPreparedLaunch: only the expected programs and instructions", () => {
   const mint = Keypair.generate().publicKey.toBase58();
-  const want = (devBuyLamports = 0) => ({ trader: trader.publicKey.toBase58(), treasury: treasury.toBase58(), launchFeeLamports: FEE, devBuyLamports });
+  const want = (devBuyLamports = 0) => ({ mint, trader: trader.publicKey.toBase58(), treasury: treasury.toBase58(), launchFeeLamports: FEE, devBuyLamports });
   const check = (o: Parameters<typeof preparedMessage>[1], devBuy = 0) =>
     checkPreparedLaunch(VersionedTransaction.deserialize(Buffer.from(preparedTx(mint, o), "base64")), want(devBuy), noTables);
   const ix = (programId: PublicKey, data: number[]) => new TransactionInstruction({ programId, keys: [], data: Buffer.from(data) });
@@ -213,9 +219,27 @@ describe("checkPreparedLaunch: only the expected programs and instructions", () 
     expect(await check({ extra: [ix(CB, [1, 0, 0, 0, 0])] })).toMatch(/unexpected network fee settings/);
   });
   test("Associated Token: only createIdempotent", async () => {
-    expect(await check({ extra: [ix(ATA, [1])] })).toBeNull();
-    expect(await check({ extra: [ix(ATA, [])] })).toMatch(/unexpected token-account instruction/);
-    expect(await check({ extra: [ix(ATA, [2])] })).toMatch(/unexpected token-account instruction/);
+    expect(await check({ devBuy: 5_000 }, 5_000)).toBeNull();
+    expect(await check({ devBuy: 5_000, extra: [ix(ATA, [])] }, 5_000)).toMatch(/unexpected token-account instruction/);
+    expect(await check({ devBuy: 5_000, extra: [ix(ATA, [2])] }, 5_000)).toMatch(/unexpected token-account instruction/);
+  });
+  test("Associated Token: at most one, only with a dev buy, only the trader's own account for this mint", async () => {
+    const ro = (pubkey: PublicKey) => ({ pubkey, isSigner: false, isWritable: false });
+    const ata = (payer: PublicKey, owner: PublicKey, m: string, at = associatedTokenAddress(owner.toBase58(), m)) => new TransactionInstruction({
+      programId: ATA, data: Buffer.from([1]),
+      keys: [{ pubkey: payer, isSigner: true, isWritable: true }, { pubkey: new PublicKey(at), isSigner: false, isWritable: true }, ro(owner), ro(new PublicKey(m)), ro(SystemProgram.programId), ro(new PublicKey(TOKEN_2022_PROGRAM))],
+    });
+    const bad = /token account that isn't yours/;
+    expect(await check({ devBuy: 5_000, extra: [ata(trader.publicKey, trader.publicKey, mint)] }, 5_000)).toMatch(bad); // a second one
+    expect(await check({ extra: [ata(trader.publicKey, trader.publicKey, mint)] })).toMatch(bad); // no dev buy
+    expect(await check({ devBuy: 5_000, noAta: true, extra: [ata(trader.publicKey, Keypair.generate().publicKey, mint)] }, 5_000)).toMatch(bad); // foreign owner
+    const other = Keypair.generate().publicKey.toBase58();
+    expect(await check({ devBuy: 5_000, noAta: true, extra: [ata(trader.publicKey, trader.publicKey, other)] }, 5_000)).toMatch(bad); // foreign mint
+    expect(await check({ devBuy: 5_000, noAta: true, extra: [ata(trader.publicKey, trader.publicKey, mint, Keypair.generate().publicKey.toBase58())] }, 5_000)).toMatch(bad); // not the derived address
+  });
+  test("pump.fun: the dev buy is for this mint and this trader", async () => {
+    expect(await check({ devBuy: 5_000, buyMint: Keypair.generate().publicKey }, 5_000)).toMatch(/different coin or wallet/);
+    expect(await check({ devBuy: 5_000, buyUser: Keypair.generate().publicKey }, 5_000)).toMatch(/different coin or wallet/);
   });
   test("System: only the transfer to the treasury", async () => {
     const assign = SystemProgram.assign({ accountPubkey: trader.publicKey, programId: Keypair.generate().publicKey });
@@ -235,7 +259,7 @@ describe("checkPreparedLaunch on the live PumpPortal fixture", () => {
   const built = (devBuy: number) => VersionedTransaction.deserialize(buildLaunchTx(decodeTransaction(fromBase64(f.tx)), f.tables, {
     trader: f.creator, mint: f.mint, devBuyLamports: BigInt(devBuy), treasury: treasury.toBase58(), launchFeeLamports: BigInt(FEE_002),
   }));
-  const want = (devBuy: number, fee = FEE_002) => ({ trader: f.creator, treasury: treasury.toBase58(), launchFeeLamports: fee, devBuyLamports: devBuy });
+  const want = (devBuy: number, fee = FEE_002) => ({ trader: f.creator, mint: f.mint, treasury: treasury.toBase58(), launchFeeLamports: fee, devBuyLamports: devBuy });
 
   test.each([0, 10_000_000])("accepts it with a dev buy of %i lamports and a 0.02 SOL fee", async (devBuy) => {
     expect(await checkPreparedLaunch(built(devBuy), want(devBuy), lookup)).toBeNull();

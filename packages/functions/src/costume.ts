@@ -172,7 +172,13 @@ async function pay(d: CostumeDeps, wallet: string, body: Record<string, unknown>
   // A real payment for an expired costume (it landed, but was never claimed before expire_unpaid ran): its original is
   // gone, so record it for a refund instead of losing it.
   const claimExpired = async () => {
-    await d.claimExpiredPayment(signature, g.id, wallet, g.fee_lamports);
+    try {
+      await d.claimExpiredPayment(signature, g.id, wallet, g.fee_lamports);
+    } catch (e) {
+      // a concurrent duplicate already recorded it
+      const now = e instanceof StoreError && e.code === "not_awaiting" ? await d.loadGeneration(g.id) : null;
+      if (!(now?.state === "failed" && now.error === "expired_paid")) throw e;
+    }
     return fail(409, EXPIRED_PAID);
   };
   if (g.state === "expired") return claimExpired();
@@ -192,6 +198,7 @@ async function retry(d: CostumeDeps, wallet: string, body: Record<string, unknow
   const g = id ? await d.loadGeneration(id) : null;
   if (!g || g.wallet !== wallet) return json({ error: "Costume not found." }, 404, cors);
   if (g.state === "ready") return json({ generation: publicGeneration(g) }, 200, cors);
+  if (g.state === "failed" && g.error === "expired_paid") return json({ error: EXPIRED_PAID }, 409, cors);
   if (g.state === "failed") return json({ error: STORE_ANSWERS.no_attempts[1] }, STORE_ANSWERS.no_attempts[0], cors);
   return json({ generation: publicGeneration(await summon(d, g)) }, 200, cors);
 }
