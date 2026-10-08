@@ -19,10 +19,10 @@ the coin's creator and signs the launch themselves.**
 | Launch model | Direct self-launch. Trader signs the pump.fun create transaction from Phantom | Simplest; trader is dev, may dev-buy, receives pump.fun creator fees |
 | Costume | Trader picks: Ghost sheet (default), Witch, Vampire, Pumpkin head, Mummy, Skeleton, Devil | Ghost sheet is the brand; choice adds fun |
 | Costume is mandatory | The server builds the coin metadata from a costumed image it stored itself | A trader cannot launch the uncostumed original through SpookPad |
-| AI model | Google Gemini 3.1 Flash Image ("Nano Banana 2") via **OpenRouter** | Best at editing while keeping the character recognizable; OpenRouter credits can be bought with USDC from a wallet (no card) |
+| AI model | Google Nano Banana 2.1 (released 2026-10-06, ~$0.034/image) via **OpenRouter** | Best at editing while keeping the character recognizable; OpenRouter credits can be bought with USDC from a wallet (no card) |
 | Who pays for AI | The trader pays a **costume fee** in SOL to the treasury per generation | Owner's own funds are never used; fee also stops spam |
 | Platform revenue | Flat **launch fee** in SOL to the treasury, inside the launch transaction | One atomic transaction; creator fees stay with the trader |
-| Hosting | Free plans only, as IdeaPad; OpenRouter is the only paid service, funded by fees | Owner pays nothing |
+| Hosting | Free plans only, as IdeaPad; OpenRouter is the only paid service, funded by fees | Owner pays nothing beyond a one-time ~$5 OpenRouter starting balance (USDC from a wallet), repaid by fees; the owner then tops up from the treasury |
 
 ## 2. Trader flow
 
@@ -114,7 +114,7 @@ Phantom `signMessage` sign-in as in IdeaPad. Shows and edits: `COSTUME_FEE_LAMPO
 
 ## 5. Costume prompts and the AI call
 
-OpenRouter `POST /api/v1/chat/completions`, model `OPENROUTER_MODEL` (default `google/gemini-3.1-flash-image`),
+OpenRouter `POST /api/v1/chat/completions`, model `OPENROUTER_MODEL` (default `google/gemini-nano-banana-2.1`; check the exact id on openrouter.ai at implementation),
 `modalities: ["image","text"]`, `image_config: {aspect_ratio: "1:1"}`, one user message with the original image
 (data URL) and the prompt. The first image in `choices[0].message.images` is the result; it is resized to
 1024×1024 PNG before storing.
