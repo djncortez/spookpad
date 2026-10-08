@@ -102,11 +102,31 @@ async function getPhantom() {
   return null;
 }
 const toBase64 = (bytes) => btoa(String.fromCharCode(...bytes));
+// ===== field parsing ===== (scripts/test/admin-page.test.ts runs this block)
 function solToLamports(text) {
   const m = /^(\d+)(?:\.(\d{1,9}))?$/.exec(String(text).trim());
   if (!m) throw new Error(`"${text}" is not a SOL amount (digits, up to 9 decimals).`);
   return Number(m[1]) * 1e9 + Number((m[2] || "").padEnd(9, "0"));
 }
+// Strict: an empty field is refused (it must never save 0), and so is anything with extra characters ("12abc").
+function parseField(kind, label, text) {
+  const t = String(text).trim();
+  if (kind === "sol") {
+    if (!/^\d+(\.\d{1,9})?$/.test(t)) throw new Error(`${label}: enter a SOL amount like 0.02 (digits, up to 9 decimals; 0 for none).`);
+    return solToLamports(t);
+  }
+  if (kind === "usd") {
+    if (!/^\d+(\.\d{1,2})?$/.test(t)) throw new Error(`${label}: enter a dollar amount like 2 or 2.50.`);
+    return Number(t);
+  }
+  if (!/^\d+$/.test(t)) throw new Error(`${label}: enter a whole number.`);
+  return Number(t);
+}
+function costumeFeeWarning(text) {
+  try { return solToLamports(text) === 0 ? "Costumes are free: anyone can generate costumes for free, which spends your OpenRouter credit." : ""; }
+  catch { return ""; }
+}
+// ===== end field parsing =====
 function lamportsToSol(n) {
   const whole = Math.floor(n / 1e9);
   const frac = String(n % 1e9).padStart(9, "0").replace(/0+$/, "");
@@ -194,7 +214,13 @@ function renderSettings() {
       return el("label", { className: "check" }, el("input", { type: "checkbox", name: key, checked: current[key] }), label);
     }
     const value = kind === "sol" ? lamportsToSol(current[key]) : String(current[key]);
-    return el("label", {}, label, el("input", { type: "text", name: key, value }));
+    const input = el("input", { type: "text", name: key, value });
+    if (key !== "costume_fee_lamports") return el("label", {}, label, input);
+    const warn = el("small", { className: "err", role: "alert" });
+    const check = () => { warn.textContent = costumeFeeWarning(input.value); };
+    input.oninput = check;
+    check();
+    return el("label", {}, label, input, warn);
   }));
   if (current.generations_paused && current.pause_reason === "low_credit") {
     show($("save-msg"), "Costume summoning paused itself: OpenRouter credit ran low.", "err");
@@ -207,12 +233,9 @@ async function saveSettings() {
   try {
     const form = $("settings-form");
     const patch = {};
-    for (const [key, , kind] of FIELDS) {
+    for (const [key, label, kind] of FIELDS) {
       const input = form.elements[key];
-      if (kind === "bool") patch[key] = input.checked;
-      else if (kind === "sol") patch[key] = solToLamports(input.value);
-      else if (kind === "usd") patch[key] = Number(input.value);
-      else patch[key] = Number.parseInt(input.value, 10);
+      patch[key] = kind === "bool" ? input.checked : parseField(kind, label, input.value); // throws: nothing is saved
     }
     current = await api("/settings", { method: "PATCH", body: JSON.stringify(patch) });
     renderSettings();
