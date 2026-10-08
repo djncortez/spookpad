@@ -17,7 +17,7 @@ export interface LaunchDeps {
   send(raw: Uint8Array): Promise<string>;
   wait(ms: number): Promise<void>;
   onStep?(s: LaunchStep): void;
-  onSent?(mint: string, signature: string, expiry: Expiry): void; // called BEFORE send // so an unconfirmed launch can be checked again, not redone
+  onSent?(mint: string, signature: string, expiry: Expiry): void; // called BEFORE send, so an unconfirmed launch can be checked again, not redone
 }
 
 const POLL_MS = 2000;

@@ -9,7 +9,7 @@ beforeEach(() => {
   });
 });
 
-const pay = { generationId: "g1", draftId: "d1", signature: "SIG", expiry: { blockhash: "BH", lastValidBlockHeight: 5 } };
+const pay = { generationId: "g1", draftId: "d1", signature: "SIG", expiry: { blockhash: "BH" } };
 const launch = { generationId: "g1", mint: "M", signature: "SIG", expiry: { blockhash: "BH" } };
 
 test("a pending payment is stored per wallet and only read back for that wallet", () => {

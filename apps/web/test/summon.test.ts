@@ -8,7 +8,7 @@ const gen = (state: Generation["state"], extra: Partial<Generation> = {}): Gener
   id: "g1", draft_id: "d", costume: "ghost", state, original_path: "originals/g1.png", result_path: state === "ready" ? "costumes/g1.png" : null,
   error: null, attempts: 0, fee_lamports: 1_000_000, ...extra,
 });
-const EXP = { blockhash: "BH", lastValidBlockHeight: 10 };
+const EXP = { blockhash: "BH" };
 const fee = (signature = "SIG", send: () => Promise<void> = async () => {}) => async () => ({ signature, expiry: EXP, send });
 const startAnswer = (g: Generation) => ({ generation: g, fee_lamports: 1_000_000, treasury: "T", memo: "spookpad:g1" });
 
@@ -118,9 +118,10 @@ describe("finishPayment", () => {
 });
 
 describe("checkPending", () => {
-  const chain = (status: { err: unknown } | null, valid: boolean) => ({
-    getSignatureStatuses: async () => ({ value: [status] }),
-    isBlockhashValid: async () => ({ value: valid }),
+  const calls: string[] = [];
+  const chain = (status: { err: unknown } | null, valid: boolean, slots = { status: 100, hash: 100 }) => ({
+    getSignatureStatuses: async () => { calls.push("status"); return { context: { slot: slots.status }, value: [status] }; },
+    isBlockhashValid: async () => { calls.push("hash"); return { context: { slot: slots.hash }, value: valid }; },
   });
   const waiting = async () => { throw new StillWaiting("slow"); };
   const run = (e: () => Promise<unknown>, c: ReturnType<typeof chain>) => checkPending(e, c, "SIG", EXP, "gone");
@@ -140,13 +141,27 @@ describe("checkPending", () => {
   test("still waiting with no status and an expired blockhash clears", async () => {
     expect(await run(waiting, chain(null, false))).toEqual({ kind: "cleared", message: "gone" });
   });
-  test("still waiting with no status but a valid blockhash keeps", async () => {
+  test("still waiting with no status but a valid blockhash keeps, without asking for the status", async () => {
+    calls.length = 0;
     expect(await run(waiting, chain(null, true))).toEqual({ kind: "keep" });
+    expect(calls).toEqual(["hash"]);
   });
-  test("still waiting with a status and no error keeps, even if the blockhash expired", async () => {
+  test("the blockhash is checked before the signature status", async () => {
+    calls.length = 0;
+    await run(waiting, chain(null, false));
+    expect(calls).toEqual(["hash", "status"]);
+  });
+  test("a seen transaction with no error keeps, even if the blockhash expired", async () => {
     expect(await run(waiting, chain({ err: null }, false))).toEqual({ kind: "keep" });
   });
-  test("a transaction that failed on chain can never land and clears", async () => {
-    expect(await run(waiting, chain({ err: { InstructionError: [0, "x"] } }, true))).toEqual({ kind: "cleared", message: "gone" });
+  test("a transaction that failed on chain, past its blockhash, clears", async () => {
+    expect(await run(waiting, chain({ err: { InstructionError: [0, "x"] } }, false))).toEqual({ kind: "cleared", message: "gone" });
+  });
+  test("a status node that is behind the blockhash node keeps", async () => {
+    expect(await run(waiting, chain(null, false, { status: 99, hash: 100 }))).toEqual({ kind: "keep" });
+  });
+  test("a status node that is level or ahead clears", async () => {
+    expect(await run(waiting, chain(null, false, { status: 100, hash: 100 }))).toEqual({ kind: "cleared", message: "gone" });
+    expect(await run(waiting, chain(null, false, { status: 101, hash: 100 }))).toEqual({ kind: "cleared", message: "gone" });
   });
 });

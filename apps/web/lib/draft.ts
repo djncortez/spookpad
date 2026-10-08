@@ -39,9 +39,8 @@ export const setDraft = (id: string): void => set(DRAFT_KEY, id);
 
 const str = (v: unknown): v is string => typeof v === "string" && v.length > 0;
 function expiryOf(v: unknown): Expiry | null {
-  const e = v as { blockhash?: unknown; lastValidBlockHeight?: unknown } | null;
-  if (!e || !str(e.blockhash)) return null;
-  return typeof e.lastValidBlockHeight === "number" ? { blockhash: e.blockhash, lastValidBlockHeight: e.lastValidBlockHeight } : { blockhash: e.blockhash };
+  const e = v as { blockhash?: unknown } | null;
+  return e && str(e.blockhash) ? { blockhash: e.blockhash } : null;
 }
 function read(key: string): Record<string, unknown> | null {
   try {

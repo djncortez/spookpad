@@ -26,8 +26,19 @@ test("signFee knows the signature and blockhash before anything is sent", async 
   const fee = await signFee({ connection, signTransaction: async (tx) => { order.push("sign"); tx.partialSign(payer); return tx; } },
     { from: payer.publicKey.toBase58(), treasury, lamports: 1_000_000, memo: "spookpad:abc" });
   expect(order).toEqual(["sign"]); // signed, not yet sent
-  expect(fee.expiry).toEqual({ blockhash: BH, lastValidBlockHeight: 123 });
+  expect(fee.expiry).toEqual({ blockhash: BH });
   expect(bs58.decode(fee.signature)).toHaveLength(64);
   await fee.send();
   expect(order).toEqual(["sign", "send"]);
+});
+
+test("signFee remembers the blockhash the wallet actually signed, if it changed it", async () => {
+  const payer = Keypair.generate();
+  const treasury = Keypair.generate().publicKey.toBase58();
+  const BH = "EQUqMeuM87uiVqgHwRqBHY8gFmztyTP9Sbi39Do4fHgK";
+  const OTHER = "GfnhkAa2iy8cZV7X5SyyYmDtxnCtHKQrMiBhEsMEHv2n";
+  const connection = { getLatestBlockhash: async () => ({ blockhash: BH, lastValidBlockHeight: 1 }), sendRawTransaction: async () => "x" };
+  const fee = await signFee({ connection, signTransaction: async (tx) => { tx.recentBlockhash = OTHER; tx.partialSign(payer); return tx; } },
+    { from: payer.publicKey.toBase58(), treasury, lamports: 1, memo: "m" });
+  expect(fee.expiry).toEqual({ blockhash: OTHER });
 });

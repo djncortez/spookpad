@@ -31,17 +31,16 @@ export async function signFee(
   d: { connection: Pick<Connection, "getLatestBlockhash" | "sendRawTransaction">; signTransaction(tx: Transaction): Promise<Transaction> },
   p: { from: string; treasury: string; lamports: number; memo: string },
 ): Promise<SignedFee> {
-  const { blockhash, lastValidBlockHeight } = await d.connection.getLatestBlockhash("confirmed");
+  const { blockhash } = await d.connection.getLatestBlockhash("confirmed");
   const tx = feeTransaction(p);
   tx.feePayer = new PublicKey(p.from);
   tx.recentBlockhash = blockhash;
-  tx.lastValidBlockHeight = lastValidBlockHeight;
   const signed = await d.signTransaction(tx);
   const first = signed.signatures[0]?.signature;
   if (!first) throw new Error("Your wallet didn't sign the payment, so nothing was sent.");
   return {
     signature: bs58.encode(first),
-    expiry: { blockhash, lastValidBlockHeight },
+    expiry: { blockhash: signed.recentBlockhash ?? blockhash }, // what the wallet actually signed
     send: async () => { await d.connection.sendRawTransaction(signed.serialize(), { maxRetries: 5 }); },
   };
 }

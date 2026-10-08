@@ -2,18 +2,19 @@
 // Rule: a remembered payment/launch is cleared only once it has definitely resolved: success, a definitive 4xx from the
 // server (400/404/409), or its transaction can no longer land.
 // Expiry approach (the same for both): every record keeps the transaction's signature and the recent blockhash it was
-// built on. It "can no longer land" when getSignatureStatuses shows nothing for the signature (or an on-chain error)
-// AND isBlockhashValid(blockhash, confirmed) is false. (prepare-launch doesn't return a lastValidBlockHeight, so the
-// blockhash check is used for both; the fee also records lastValidBlockHeight from the getLatestBlockhash it was built on.)
+// built on. It "can no longer land" only when, in this order, isBlockhashValid(blockhash, confirmed) says false and THEN
+// getSignatureStatuses shows nothing (or an on-chain error) from a node that is at least as far along as the one that
+// judged the blockhash (status context.slot >= blockhash context.slot). A transaction can land between the two calls,
+// and nodes can lag, so anything else keeps the record.
 import { ApiError } from "./functions";
 
 export interface Expiry {
   blockhash: string;
-  lastValidBlockHeight?: number;
 }
+interface Ctx { context: { slot: number } }
 export interface ChainView {
-  getSignatureStatuses(signatures: string[], config: { searchTransactionHistory: boolean }): Promise<{ value: ({ err: unknown } | null)[] }>;
-  isBlockhashValid(blockhash: string, config: { commitment: "confirmed" }): Promise<{ value: boolean }>;
+  getSignatureStatuses(signatures: string[], config: { searchTransactionHistory: boolean }): Promise<Ctx & { value: ({ err: unknown } | null)[] }>;
+  isBlockhashValid(blockhash: string, config: { commitment: "confirmed" }): Promise<Ctx & { value: boolean }>;
 }
 
 // The server was asked for the result for the whole wait and still said "waiting".
@@ -22,10 +23,12 @@ export class StillWaiting extends Error {}
 export const isDefinitive = (e: unknown): e is ApiError => e instanceof ApiError && (e.status === 400 || e.status === 404 || e.status === 409);
 
 export async function canNoLongerLand(chain: ChainView, signature: string, expiry: Expiry): Promise<boolean> {
-  const { value } = await chain.getSignatureStatuses([signature], { searchTransactionHistory: true });
-  const status = value[0] ?? null;
-  if (status) return status.err != null; // seen: only a failed transaction is over
-  return !(await chain.isBlockhashValid(expiry.blockhash, { commitment: "confirmed" })).value;
+  const hash = await chain.isBlockhashValid(expiry.blockhash, { commitment: "confirmed" });
+  if (hash.value) return false; // it can still land
+  const statuses = await chain.getSignatureStatuses([signature], { searchTransactionHistory: true });
+  if (statuses.context.slot < hash.context.slot) return false; // the status node is behind the one that judged the blockhash
+  const status = statuses.value[0] ?? null;
+  return !status || status.err != null; // never seen, or failed on chain
 }
 
 export type Checked<T> = { kind: "done"; value: T } | { kind: "cleared"; message: string } | { kind: "keep" };
