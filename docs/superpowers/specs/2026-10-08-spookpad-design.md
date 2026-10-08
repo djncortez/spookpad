@@ -1,0 +1,207 @@
+# SpookPad: design
+
+Date: 2026-10-08 · Status: approved in brainstorming, awaiting written review
+
+**A Halloween meme coin launchpad.** Traders launch their own coins on pump.fun. Every coin image is dressed in a
+Halloween costume by AI before launch: a bedsheet ghost by default, or a costume the trader picks.
+
+SpookPad reuses IdeaPad's stack and parts (`C:\Users\User\Desktop\IdeaPad`): Next.js static export on Netlify, Supabase
+(Postgres, Storage, Edge Functions), Helius, PumpPortal's local-transaction API, pump.fun IPFS, wallet sign-in, and
+the admin page at a secret path. Unlike IdeaPad, there are no rounds, votes or platform launch wallet: **the trader is
+the coin's creator and signs the launch themselves.**
+
+---
+
+## 1. Decisions
+
+| Topic | Decision | Why |
+|---|---|---|
+| Launch model | Direct self-launch. Trader signs the pump.fun create transaction from Phantom | Simplest; trader is dev, may dev-buy, receives pump.fun creator fees |
+| Costume | Trader picks: Ghost sheet (default), Witch, Vampire, Pumpkin head, Mummy, Skeleton, Devil | Ghost sheet is the brand; choice adds fun |
+| Costume is mandatory | The server builds the coin metadata from a costumed image it stored itself | A trader cannot launch the uncostumed original through SpookPad |
+| AI model | Google Gemini 3.1 Flash Image ("Nano Banana 2") via **OpenRouter** | Best at editing while keeping the character recognizable; OpenRouter credits can be bought with USDC from a wallet (no card) |
+| Who pays for AI | The trader pays a **costume fee** in SOL to the treasury per generation | Owner's own funds are never used; fee also stops spam |
+| Platform revenue | Flat **launch fee** in SOL to the treasury, inside the launch transaction | One atomic transaction; creator fees stay with the trader |
+| Hosting | Free plans only, as IdeaPad; OpenRouter is the only paid service, funded by fees | Owner pays nothing |
+
+## 2. Trader flow
+
+1. **Connect wallet:** Phantom / Solflare through Supabase `signInWithWeb3` (as IdeaPad).
+2. **Coin details:** name 1–32 chars; ticker 2–10 chars `A–Z0–9` (stored uppercase); description ≤ 200 chars;
+   optional X and Telegram links (https only); image PNG / JPG / WebP ≤ 5 MB. No GIF: the AI returns a still image.
+   The browser crops to square and resizes to 1024×1024 before upload. The form states the rules: no real people, no
+   real brands or trademarks, no targeting private individuals.
+3. **Pick a costume** (default Ghost sheet).
+4. **"Summon costume":**
+   1. Browser uploads the original to `costume` (§4.1) to get a `generation_id` in state `awaiting_payment`.
+   2. Phantom signs a transfer of `COSTUME_FEE_LAMPORTS` to `TREASURY_ADDRESS` with a Memo instruction
+      `spookpad:<generation_id>`; the browser sends it via Helius and waits for `confirmed`.
+   3. Browser calls `costume` with the signature. The server verifies it, calls OpenRouter and stores the result.
+   4. The page shows original and costumed image side by side. "Summon again" (same or another costume) starts a new
+      paid generation. All of the trader's ready generations for this draft are shown; the trader picks one.
+5. **Launch:** optional dev buy (0–`MAX_DEV_BUY_SOL`, default 5 SOL). "Launch" calls `prepare-launch` (§4.2); Phantom
+   shows one transaction: pump.fun create (+ dev buy) + launch-fee transfer. The browser signs with the mint keypair
+   it generated, Phantom signs as creator, the browser sends via Helius, then calls `confirm-launch` (§4.3).
+6. The coin is listed on the **Graveyard** feed and gets a coin page.
+
+## 3. Architecture
+
+```
+Browser (Next.js static export, Netlify CDN)
+  │  reads: Supabase public views (RLS)      writes: Edge Functions only
+  │  signs: fee transfers and the create tx (Phantom) + mint keypair (generated in the browser)
+  ▼
+Supabase (free plan)
+  Edge Functions (Deno):
+    costume         create generation · verify fee payment · OpenRouter edit · store PNG
+    prepare-launch  IPFS upload (costumed PNG + metadata) · PumpPortal create tx · check · add fee transfer
+    confirm-launch  verify the create tx on-chain · insert launch
+    admin           settings, prompts, pause switch, OpenRouter credit balance
+    market-caps     (pg_cron, every 2 min) refresh market caps of listed coins via DEX Screener
+  Storage buckets: originals (private), costumes (public)
+  Postgres + RLS: public views only
+Outside: Helius RPC · OpenRouter · PumpPortal trade-local · pump.fun IPFS (Pinata fallback) · DEX Screener
+```
+
+- **No spending keys on the server.** The server never holds a key that can move funds. The treasury is a wallet
+  the owner controls in Phantom; functions only read the chain.
+- **Shared logic** lives in `packages/core` (pure TypeScript, no I/O), as in IdeaPad. Copy and adapt from IdeaPad:
+  `pump-tx.ts` (create-transaction checker), `pump-services.ts` (IPFS + PumpPortal), wallet sign-in, admin sign-in
+  (`ADMIN_WALLET`, `signMessage`, `/<ADMIN_SLUG>`), build scripts.
+
+## 4. Functions
+
+### 4.1 `costume`
+- `POST {action:"start", draftId, costume, image}` (signed-in): validates image and costume, stores the original in
+  `originals/<wallet>/<id>.png`, inserts `generations` row `awaiting_payment`, returns `{generationId, feeLamports,
+  treasury}`. Refuses when generations are paused (§6).
+- `POST {action:"pay", generationId, signature}`:
+  1. Inserts `costume_payments(signature)`; the unique key rejects a reused signature.
+  2. Fetches the transaction from Helius (`confirmed`): no error; fee payer = signed-in wallet; contains a System
+     transfer from that wallet to `TREASURY_ADDRESS` of ≥ the fee recorded on the generation; contains Memo
+     `spookpad:<generationId>`. Otherwise the payment row is deleted and the call fails with a clear reason. If the
+     transaction is not found yet, the call answers `retry` and the browser retries for up to 60 s.
+  3. Marks the generation `paid`, then `generating`, and calls OpenRouter (§5). On success: stores the PNG in
+     `costumes/<generationId>.png`, state `ready`. On failure (refusal, no image, timeout 90 s, HTTP error): state
+     back to `paid`, the error is returned; `POST {action:"retry", generationId}` tries again without a new payment
+     (max 3 attempts, then `failed` and the admin sees it for a manual refund).
+- Rate limit: max `MAX_GENERATIONS_PER_WALLET_PER_HOUR` (20) started generations.
+
+### 4.2 `prepare-launch`
+`POST {generationId, name, ticker, description, links, devBuySol, mint}` (signed-in; `mint` = public key of the
+browser's mint keypair):
+1. The generation must be `ready`, belong to the wallet, and not already be launched. Validates fields.
+2. Uploads the **stored costumed PNG** and metadata to IPFS once per generation (cached `metadata_uri`).
+3. Asks PumpPortal `trade-local` for `action:"create"` with `publicKey` = trader wallet, `mint`, metadata, dev buy
+   `amount = devBuySol`, `denominatedInSol: "true"`, `slippage` 10, `priorityFee` 0.0005, `pool: "pump"`.
+4. Checks the transaction with the adapted `pump-tx` checker: creates exactly this mint with this name, symbol and
+   URI; creator and fee payer = trader; dev buy ≤ requested; no other SOL transfers beyond PumpPortal's allowed
+   service fee.
+5. Decompiles the message, appends `SystemProgram.transfer(trader → TREASURY_ADDRESS, LAUNCH_FEE_LAMPORTS)`,
+   recompiles with the same blockhash and lookup tables. Returns the unsigned transaction (base64) and records a
+   `launches` row `pending` (mint, wallet, generation, fields).
+
+### 4.3 `confirm-launch`
+`POST {mint, signature}`: fetches the transaction (`confirmed`); it must be the pending launch's create transaction
+(mint created, creator = wallet, launch fee paid to the treasury). Marks the launch `live` with `launched_at`.
+Pending launches older than 10 minutes with no confirmation are marked `abandoned` (cron), and their generation can
+be launched again.
+
+### 4.4 `admin`
+Phantom `signMessage` sign-in as in IdeaPad. Shows and edits: `COSTUME_FEE_LAMPORTS`, `LAUNCH_FEE_LAMPORTS`,
+`MAX_DEV_BUY_SOL`, generation pause switch, launch pause switch, each costume's prompt; OpenRouter credit balance
+(`GET /api/v1/credits`); failed generations needing a refund; totals (fees received, generations, launches).
+
+## 5. Costume prompts and the AI call
+
+OpenRouter `POST /api/v1/chat/completions`, model `OPENROUTER_MODEL` (default `google/gemini-3.1-flash-image`),
+`modalities: ["image","text"]`, `image_config: {aspect_ratio: "1:1"}`, one user message with the original image
+(data URL) and the prompt. The first image in `choices[0].message.images` is the result; it is resized to
+1024×1024 PNG before storing.
+
+Every prompt = shared rule + costume line:
+
+> Edit this image. Keep the character exactly the same: same face, colors, art style, line work, proportions, pose and
+> background. Do not add text or watermarks. Only add the following Halloween costume, drawn in the image's own art
+> style so it looks like it belongs: …
+
+| Costume | Line |
+|---|---|
+| Ghost sheet | a white bedsheet ghost costume draped over the character's body and head, with two cut-out eye holes showing the character's own eyes, the sheet's folds following its shape |
+| Witch | a black pointy witch hat and a dark purple cape |
+| Vampire | a high-collared black and red vampire cape and small fangs |
+| Pumpkin head | a carved jack-o'-lantern worn as a helmet over the head, the face visible through the carved opening |
+| Mummy | loose white bandage wrappings around the body and head, the eyes still visible |
+| Skeleton | a black skeleton costume suit with white bones printed on it |
+| Devil | small red devil horns, a red cape and a pointed tail |
+
+Prompts are stored in the `costumes` table (§6) and editable in admin; the table above is the seed.
+
+## 6. Data
+
+| Table | Columns (main) |
+|---|---|
+| `settings` | key, value (fees, limits, pause switches) |
+| `costumes` | slug, label, emoji, prompt, sort, enabled |
+| `generations` | id, wallet, draft_id, costume, original_path, result_path, state (`awaiting_payment`/`paid`/`generating`/`ready`/`failed`), fee_lamports, attempts, error, metadata_uri, created_at |
+| `costume_payments` | signature (PK), generation_id, wallet, lamports, created_at |
+| `launches` | mint (PK), wallet, generation_id, name, ticker, description, links, dev_buy_sol, create_signature, state (`pending`/`live`/`abandoned`), market_cap_usd, launched_at |
+
+RLS: no direct table access for `anon`/`authenticated`. Public views: `graveyard` (live launches with image URL,
+market cap) and `my_generations` (signed-in wallet's own rows). Writes only through Edge Functions (service role).
+
+**Auto-pause:** when the OpenRouter credit balance (checked after every generation and by cron every 10 min) is below
+`MIN_AI_CREDIT_USD` (default $2), generations pause and the site shows "The cauldron is empty — costumes are back
+soon". Admin gets a Telegram DM if `TELEGRAM_BOT_TOKEN` and `ADMIN_TELEGRAM_CHAT_ID` are set.
+
+## 7. Pages
+
+- **Home / Graveyard:** hero ("Every coin wears a costume"), "Launch a coin" button, grid of live launches (costumed
+  image, name, ticker, market cap, age), sorted newest or by market cap.
+- **Launch:** the wizard of §2 with costume picker, preview, generation history, launch step.
+- **Coin page** `/coin?mint=…`: costumed image, details, links, pump.fun and DEX Screener links, original-vs-costume
+  reveal.
+- **Admin** `/<ADMIN_SLUG>`: §4.4.
+
+Look: dark Halloween theme (night purple, pumpkin orange, ghost white), visual details decided at implementation with
+the frontend design skill.
+
+## 8. Errors
+
+| Case | Result |
+|---|---|
+| Fee transaction not confirmed yet | `retry` for up to 60 s, then "Payment not found — try again"; nothing is charged twice |
+| Reused or wrong payment | Refused with reason |
+| AI refuses / no image / timeout | Generation stays paid; free retry up to 3 attempts; then `failed`, admin refund list |
+| Generations paused | Start refused before payment |
+| PumpPortal tx fails checks | Launch refused, nothing signed |
+| Trader rejects in Phantom / tx fails | Launch stays `pending`, can retry; becomes `abandoned` after 10 min |
+| IPFS (pump.fun) fails | Pinata fallback when `PINATA_JWT` is set, else error |
+
+## 9. Environment
+
+| Variable | Where | What |
+|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | .env, Netlify | Supabase project |
+| `NEXT_PUBLIC_SOLANA_RPC_URL` | .env, Netlify | Helius URL for the browser |
+| `NEXT_PUBLIC_SITE_URL`, `ADMIN_SLUG` | .env, Netlify | Site URL, secret admin path |
+| `HELIUS_API_KEY` | Supabase | Server-side chain reads |
+| `TREASURY_ADDRESS` | Supabase (+ shown on site) | Receives costume and launch fees |
+| `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` | Supabase | AI costume edits |
+| `ADMIN_WALLET`, `ADMIN_SESSION_SECRET` | Supabase | Admin sign-in |
+| `SITE_ORIGINS` | Supabase | CORS allow-list |
+| `PINATA_JWT` (optional), `TELEGRAM_BOT_TOKEN`, `ADMIN_TELEGRAM_CHAT_ID` (optional) | Supabase | IPFS fallback, admin alerts |
+
+## 10. Testing
+
+Vitest, run in Node like IdeaPad:
+- `core`: field validation, fee-payment verifier (amount, recipient, payer, memo, failed tx), create-tx checker,
+  fee-transfer append (round-trip decompile/recompile, lookup tables kept), prompt builder.
+- `functions`: each handler with fake Helius, OpenRouter, PumpPortal, IPFS and storage — happy path, reused
+  signature, AI failure then free retry, pause, low credit, launch confirm.
+- Migrations: RLS lock-down test against embedded Postgres (as IdeaPad).
+
+## 11. Out of scope (for now)
+
+Telegram launch announcements, live WebSocket updates (pages poll), GIF costumes, community voting, sharing creator
+fees with the platform.
