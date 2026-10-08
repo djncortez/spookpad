@@ -57,8 +57,9 @@ Supabase (free plan)
     prepare-launch  IPFS upload (costumed PNG + metadata) · PumpPortal create tx · check · add fee transfer
     confirm-launch  verify the create tx on-chain · insert launch
     admin           settings, prompts, pause switch, OpenRouter credit balance
-    market-caps     (pg_cron, every 2 min) refresh market caps of listed coins via DEX Screener
-  Storage buckets: originals (private), costumes (public)
+  Storage bucket: art (public; originals/<uuid>.<ext> and costumes/<uuid>.<ext>, unguessable paths, so the coin
+    page can show the original next to the costume)
+  Market caps: read by the browser straight from DEX Screener (no server job)
   Postgres + RLS: public views only
 Outside: Helius RPC · OpenRouter · PumpPortal trade-local · pump.fun IPFS (Pinata fallback) · DEX Screener
 ```
@@ -73,16 +74,17 @@ Outside: Helius RPC · OpenRouter · PumpPortal trade-local · pump.fun IPFS (Pi
 
 ### 4.1 `costume`
 - `POST {action:"start", draftId, costume, image}` (signed-in): validates image and costume, stores the original in
-  `originals/<wallet>/<id>.png`, inserts `generations` row `awaiting_payment`, returns `{generationId, feeLamports,
+  `art/originals/<id>.<ext>` (≤ 3 MB), inserts `generations` row `awaiting_payment`, returns `{generationId, feeLamports,
   treasury}`. Refuses when generations are paused (§6).
 - `POST {action:"pay", generationId, signature}`:
-  1. Inserts `costume_payments(signature)`; the unique key rejects a reused signature.
-  2. Fetches the transaction from Helius (`confirmed`): no error; fee payer = signed-in wallet; contains a System
+  1. Fetches the transaction from Helius (`confirmed`): no error; fee payer = signed-in wallet; contains a System
      transfer from that wallet to `TREASURY_ADDRESS` of ≥ the fee recorded on the generation; contains Memo
-     `spookpad:<generationId>`. Otherwise the payment row is deleted and the call fails with a clear reason. If the
-     transaction is not found yet, the call answers `retry` and the browser retries for up to 60 s.
-  3. Marks the generation `paid`, then `generating`, and calls OpenRouter (§5). On success: stores the PNG in
-     `costumes/<generationId>.png`, state `ready`. On failure (refusal, no image, timeout 90 s, HTTP error): state
+     `spookpad:<generationId>`. Otherwise the call fails with a clear reason. If the transaction is not found yet, the
+     call answers `waiting` and the browser asks again every 2 s for up to 90 s.
+  2. One SQL transaction records `costume_payments(signature)` (the unique key rejects a reused signature) and marks
+     the generation `paid`.
+  3. Marks the generation then `generating`, and calls OpenRouter (§5). On success: stores the image in
+     `art/costumes/<generationId>.<ext>`, state `ready`. On failure (refusal, no image, timeout 90 s, HTTP error): state
      back to `paid`, the error is returned; `POST {action:"retry", generationId}` tries again without a new payment
      (max 3 attempts, then `failed` and the admin sees it for a manual refund).
 - Rate limit: max `MAX_GENERATIONS_PER_WALLET_PER_HOUR` (20) started generations.
@@ -104,8 +106,8 @@ browser's mint keypair):
 ### 4.3 `confirm-launch`
 `POST {mint, signature}`: fetches the transaction (`confirmed`); it must be the pending launch's create transaction
 (mint created, creator = wallet, launch fee paid to the treasury). Marks the launch `live` with `launched_at`.
-Pending launches older than 10 minutes with no confirmation are marked `abandoned` (cron), and their generation can
-be launched again.
+Preparing a launch again for the same generation marks its earlier pending launch `abandoned` (a new mint each try);
+the create transaction's URI, name and ticker must match what SpookPad prepared.
 
 ### 4.4 `admin`
 Phantom `signMessage` sign-in as in IdeaPad. Shows and edits: `COSTUME_FEE_LAMPORTS`, `LAUNCH_FEE_LAMPORTS`,
@@ -116,8 +118,8 @@ Phantom `signMessage` sign-in as in IdeaPad. Shows and edits: `COSTUME_FEE_LAMPO
 
 OpenRouter `POST /api/v1/chat/completions`, model `OPENROUTER_MODEL` (default `google/gemini-nano-banana-2.1`; check the exact id on openrouter.ai at implementation),
 `modalities: ["image","text"]`, `image_config: {aspect_ratio: "1:1"}`, one user message with the original image
-(data URL) and the prompt. The first image in `choices[0].message.images` is the result; it is resized to
-1024×1024 PNG before storing.
+(data URL) and the prompt. The first image in `choices[0].message.images` is the result; it is stored as returned (the model
+returns a 1:1 image of about 1024 px; the server checks it is a PNG, JPEG or WebP ≤ 8 MB).
 
 Every prompt = shared rule + costume line:
 
@@ -143,14 +145,14 @@ Prompts are stored in the `costumes` table (§6) and editable in admin; the tabl
 |---|---|
 | `settings` | key, value (fees, limits, pause switches) |
 | `costumes` | slug, label, emoji, prompt, sort, enabled |
-| `generations` | id, wallet, draft_id, costume, original_path, result_path, state (`awaiting_payment`/`paid`/`generating`/`ready`/`failed`), fee_lamports, attempts, error, metadata_uri, created_at |
+| `generations` | id, wallet, draft_id, costume, original_path, result_path, state (`awaiting_payment`/`paid`/`generating`/`ready`/`failed`), fee_lamports, attempts, error, metadata_key, metadata_uri, refunded_at, created_at |
 | `costume_payments` | signature (PK), generation_id, wallet, lamports, created_at |
-| `launches` | mint (PK), wallet, generation_id, name, ticker, description, links, dev_buy_sol, create_signature, state (`pending`/`live`/`abandoned`), market_cap_usd, launched_at |
+| `launches` | mint (PK), wallet, generation_id, name, ticker, description, twitter, telegram, dev_buy_lamports, metadata_uri, launch_fee_lamports, create_signature, state (`pending`/`live`/`abandoned`), launched_at |
 
-RLS: no direct table access for `anon`/`authenticated`. Public views: `graveyard` (live launches with image URL,
-market cap) and `my_generations` (signed-in wallet's own rows). Writes only through Edge Functions (service role).
+RLS: no direct table access for `anon`/`authenticated`. Public views: `v_graveyard` (live launches with their
+original and costume image paths) and `my_generations` (signed-in wallet's own rows). Writes only through Edge Functions (service role).
 
-**Auto-pause:** when the OpenRouter credit balance (checked after every generation and by cron every 10 min) is below
+**Auto-pause:** when the OpenRouter credit balance (checked after every generation) is below
 `MIN_AI_CREDIT_USD` (default $2), generations pause and the site shows "The cauldron is empty — costumes are back
 soon". Admin gets a Telegram DM if `TELEGRAM_BOT_TOKEN` and `ADMIN_TELEGRAM_CHAT_ID` are set.
 
