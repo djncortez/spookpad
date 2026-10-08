@@ -15,6 +15,16 @@ export interface TxInstruction {
   data: Uint8Array;
 }
 
+// One address-table lookup of a v0 message: which entries of `table` it loads writable and read-only.
+export interface AddressTableLookup {
+  table: string;
+  writable: number[];
+  readonly: number[];
+}
+
+// The contents of the lookup tables a transaction uses: table address -> its addresses, as read from the chain.
+export type LookupTables = Record<string, string[]>;
+
 export interface DecodedTx {
   signatures: Uint8Array[];
   version: "legacy" | 0;
@@ -24,6 +34,7 @@ export interface DecodedTx {
   instructions: TxInstruction[];
   lookupTables: number;
   lookupSection: Uint8Array; // v0 only: the raw address-table-lookup bytes (count included), kept as they are
+  lookups: AddressTableLookup[]; // v0 only: the same lookups, decoded, in message order
   message: Uint8Array; // the exact bytes that are signed
 }
 
@@ -82,13 +93,14 @@ export function decodeTransaction(bytes: Uint8Array): DecodedTx {
   });
   let lookupTables = 0;
   let lookupSection = new Uint8Array(0);
+  const lookups: AddressTableLookup[] = [];
   if (version === 0) {
     const at = r.pos;
     lookupTables = r.compact();
     for (let i = 0; i < lookupTables; i++) {
-      r.bytes(32);
-      r.bytes(r.compact());
-      r.bytes(r.compact());
+      const table = bs58.encode(r.bytes(32));
+      const writable = Array.from(r.bytes(r.compact()));
+      lookups.push({ table, writable, readonly: Array.from(r.bytes(r.compact())) });
     }
     lookupSection = bytes.slice(at, r.pos);
   }
@@ -97,7 +109,7 @@ export function decodeTransaction(bytes: Uint8Array): DecodedTx {
   for (const ix of instructions) {
     if (ix.programIndex >= staticKeys.length) throw new Error("Program account isn't in the transaction.");
   }
-  return { signatures, version, header, staticKeys, recentBlockhash, instructions, lookupTables, lookupSection, message: bytes.slice(start) };
+  return { signatures, version, header, staticKeys, recentBlockhash, instructions, lookupTables, lookupSection, lookups, message: bytes.slice(start) };
 }
 
 export const programOf = (tx: DecodedTx, ix: TxInstruction): string => tx.staticKeys[ix.programIndex];
@@ -152,6 +164,26 @@ export function signedTransfer(from: Keypair, to: string, lamports: bigint, rece
 }
 
 export { compact as compactU16 };
+
+// The addresses a lookup-table account holds (its data after the 56-byte header). Refuses an account that isn't an
+// active lookup table: a table being closed would make the launch fail.
+export function tableAddresses(data: Uint8Array): string[] {
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  if (data.length < 56 || (data.length - 56) % 32 !== 0 || view.getUint32(0, true) !== 1) throw new Error("Not an address lookup table.");
+  if (view.getBigUint64(4, true) !== 2n ** 64n - 1n) throw new Error("The address lookup table is being closed.");
+  return Array.from({ length: (data.length - 56) / 32 }, (_, i) => bs58.encode(data.slice(56 + 32 * i, 88 + 32 * i)));
+}
+
+// Every account a transaction loads from lookup tables, in message order: each table's writable picks, then each
+// table's read-only picks. They are numbered right after the static keys.
+export function loadedAddresses(tx: DecodedTx, tables: LookupTables): string[] {
+  const pick = (kind: "writable" | "readonly") => tx.lookups.flatMap((l) => l[kind].map((i) => {
+    const address = tables[l.table]?.[i];
+    if (!address) throw new Error(`Lookup table ${l.table} wasn't read, or is shorter than the transaction expects.`);
+    return address;
+  }));
+  return [...pick("writable"), ...pick("readonly")];
+}
 
 // Encodes a message (legacy or v0 without lookup tables). Used for tests' fixtures and simple transactions.
 export function encodeMessage(m: {
