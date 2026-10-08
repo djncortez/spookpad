@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 import { Keypair, PublicKey, SystemProgram, TransactionInstruction, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
 import { toBase64 } from "@spookpad/core/encoding";
 import type { Invoke } from "../lib/call";
@@ -71,4 +71,14 @@ test("when the wallet refuses to sign, nothing is sent", async () => {
     send: async () => { sends++; return "SIG"; },
   }, { generationId: "g1", fields, devBuyLamports: 0 })).rejects.toThrow("wrong wallet");
   expect(sends).toBe(0);
+});
+
+describe("confirmLaunch", () => {
+  test("checks the same mint and signature again", async () => {
+    const calls: unknown[] = [];
+    const invoke = (async (_n: string, body: unknown) => { calls.push(body); return { status: "live" }; }) as import("../lib/call").Invoke;
+    const { confirmLaunch } = await import("../lib/launch-coin");
+    expect(await confirmLaunch({ invoke, wait: async () => {} }, "MINT", "SIG")).toBe("MINT");
+    expect(calls).toEqual([{ mint: "MINT", signature: "SIG" }]);
+  });
 });

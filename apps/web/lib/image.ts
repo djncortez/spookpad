@@ -13,6 +13,8 @@ function toBlob(canvas: HTMLCanvasElement, type: string, quality?: number): Prom
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Couldn't read that image. Try another file."))), type, quality));
 }
 
+let lastPreview: string | null = null;
+
 export async function prepareImage(file: File): Promise<PreparedImage> {
   if (!/^image\/(png|jpeg|webp)$/.test(file.type)) throw new Error("Pick a PNG, JPG or WebP image.");
   if (file.size > MAX_INPUT_BYTES) throw new Error("That file is too big. Pick an image under 20 MB.");
@@ -34,7 +36,10 @@ export async function prepareImage(file: File): Promise<PreparedImage> {
     let blob = await toBlob(canvas, "image/png");
     if (blob.size > MAX_OUTPUT_BYTES) blob = await toBlob(canvas, "image/jpeg", 0.9);
     if (blob.size > MAX_OUTPUT_BYTES) throw new Error("That image is too detailed. Try a simpler one.");
-    return { base64: toBase64(new Uint8Array(await blob.arrayBuffer())), previewUrl: URL.createObjectURL(blob) };
+    const base64 = toBase64(new Uint8Array(await blob.arrayBuffer()));
+    if (lastPreview) URL.revokeObjectURL(lastPreview); // the previous preview is replaced
+    lastPreview = URL.createObjectURL(blob);
+    return { base64, previewUrl: lastPreview };
   } finally {
     bitmap.close();
   }

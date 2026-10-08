@@ -15,6 +15,7 @@ export interface LaunchDeps {
   send(raw: Uint8Array): Promise<string>;
   wait(ms: number): Promise<void>;
   onStep?(s: LaunchStep): void;
+  onSent?(mint: string, signature: string): void; // so an unconfirmed launch can be checked again, not redone
 }
 
 const POLL_MS = 2000;
@@ -32,6 +33,12 @@ export async function launchCoin(d: LaunchDeps, p: { generationId: string; field
   signed.sign([mint]);
   d.onStep?.("sending");
   const signature = await d.send(signed.serialize());
+  d.onSent?.(address, signature);
+  return confirmLaunch(d, address, signature);
+}
+
+// After the transaction is sent: wait until Solana shows it; confirm-launch then lists the coin. Safe to call again.
+export async function confirmLaunch(d: Pick<LaunchDeps, "invoke" | "wait" | "onStep">, address: string, signature: string): Promise<string> {
   d.onStep?.("confirming");
   for (let i = 0; i < POLL_TRIES; i++) {
     const r = await d.invoke<{ status: "live" | "waiting" }>("confirm-launch", { mint: address, signature });

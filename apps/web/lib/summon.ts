@@ -1,5 +1,6 @@
 // Summoning a costume (spec §2 step 4): upload the mascot, pay the costume fee from the wallet, then ask the costume
 // function to check the payment; that same call runs the AI, so the answer is the finished costume.
+import { feeMemo } from "@spookpad/core/fee-check";
 import type { Invoke } from "./call";
 
 export type GenerationState = "awaiting_payment" | "paid" | "generating" | "ready" | "failed";
@@ -27,14 +28,20 @@ export interface SummonDeps {
 const POLL_MS = 2000;
 const POLL_TRIES = 45; // about 90 seconds
 
-export async function summonCostume(d: SummonDeps, p: { draftId: string; costume: string; imageBase64: string }): Promise<Generation> {
+export async function summonCostume(d: SummonDeps, p: { draftId: string; costume: string; imageBase64: string; feeLamports: number }): Promise<Generation> {
   d.onStep?.("uploading");
   const start = await d.invoke<{ generation: Generation; fee_lamports: number; treasury: string; memo: string }>("costume", {
     action: "start", draft_id: p.draftId, costume: p.costume, image: p.imageBase64,
   });
   if (start.generation.state !== "awaiting_payment") return start.generation; // a free costume
+  // Never sign what the server did not promise: the memo must name this generation and the fee must be the one shown.
+  const lamports = Number(start.fee_lamports);
+  if (start.memo !== feeMemo(start.generation.id)) throw new Error("The payment details didn't match this costume, so nothing was sent. Try again.");
+  if (!Number.isSafeInteger(lamports) || lamports <= 0 || lamports !== p.feeLamports) {
+    throw new Error("The costume fee changed from the one shown, so nothing was sent. Reload the page and try again.");
+  }
   d.onStep?.("paying");
-  const signature = await d.payFee({ treasury: start.treasury, lamports: start.fee_lamports, memo: start.memo });
+  const signature = await d.payFee({ treasury: start.treasury, lamports, memo: start.memo });
   d.remember?.(start.generation.id, signature);
   return finishPayment(d, start.generation.id, signature);
 }

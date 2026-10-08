@@ -12,7 +12,7 @@ import { draftId as savedDraft, forgetPayment, newDraft, pendingPayment, remembe
 import { feeTransaction } from "@/lib/fee-tx";
 import { solText } from "@/lib/format";
 import { prepareImage, type PreparedImage } from "@/lib/image";
-import { launchCoin, type LaunchStep } from "@/lib/launch-coin";
+import { confirmLaunch, launchCoin, type LaunchStep } from "@/lib/launch-coin";
 import { fetchCostumes, fetchDraftGenerations, fetchSettings, type Costume, type PublicSettings } from "@/lib/public-data";
 import { finishPayment, retryCostume, summonCostume, type Generation, type SummonStep } from "@/lib/summon";
 import { CostumePicker } from "./CostumePicker";
@@ -49,6 +49,9 @@ export function LaunchWizard() {
   const [selected, setSelected] = useState<string | null>(null);
   const [devBuy, setDevBuy] = useState("0");
   const [pending, setPending] = useState<{ generationId: string; signature: string } | null>(null);
+  const pendingRef = useRef<{ generationId: string; signature: string } | null>(null);
+  // A launch that was sent but not yet seen on Solana: check it again, never launch that costume again with a new mint.
+  const [sentLaunch, setSentLaunch] = useState<{ generationId: string; mint: string; signature: string } | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -57,7 +60,9 @@ export function LaunchWizard() {
     // browser-only values (localStorage), read once after mount
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setDraft(savedDraft());
-    setPending(pendingPayment());
+    const stored = pendingPayment();
+    pendingRef.current = stored;
+    setPending(stored);
     fetchSettings().then(setSettings).catch((e: Error) => setError(e.message));
     fetchCostumes().then(setCostumes).catch((e: Error) => setError(e.message));
   }, []);
@@ -66,7 +71,8 @@ export function LaunchWizard() {
     if (!draft || !auth.wallet) return;
     const list = (await fetchDraftGenerations(draft)).filter((g) => g.state !== "awaiting_payment");
     setGenerations(list);
-    setSelected((s) => (s && list.some((g) => g.id === s) ? s : list.find((g) => g.state === "ready" && !g.launched)?.id ?? null));
+    const open = (g: Generation) => g.state === "ready" && !g.launched;
+    setSelected((s) => (s && list.some((g) => g.id === s && open(g)) ? s : list.find(open)?.id ?? null));
   }, [draft, auth.wallet]);
 
   useEffect(() => {
@@ -91,18 +97,29 @@ export function LaunchWizard() {
     try { await job(); } catch (e) { setError((e as Error).message || "Something went wrong."); } finally { setBusy(false); setStatus(null); }
   };
 
+  // Kept in state as well as storage, so Summon stays blocked even where localStorage is unavailable.
+  const remember = (generationId: string, signature: string) => {
+    rememberPayment(generationId, signature);
+    pendingRef.current = { generationId, signature };
+    setPending(pendingRef.current);
+  };
+
   const afterCostume = async (g: Generation) => {
-    forgetPayment();
-    setPending(null);
+    if (pendingRef.current?.generationId === g.id) {
+      forgetPayment();
+      pendingRef.current = null;
+      setPending(null);
+    }
     if (g.state === "ready") setSelected(g.id);
     else if (g.error) setError(g.error);
     await refresh();
   };
 
   const summon = () => run(async () => {
-    if (!image || !draft) return;
-    const g = await summonCostume({ invoke, payFee, wait, onStep: (s) => setStatus(SUMMON_TEXT[s]), remember: rememberPayment },
-      { draftId: draft, costume, imageBase64: image.base64 });
+    if (!image || !draft || pendingRef.current) return;
+    if (!settings) throw new Error("SpookPad's settings are still loading. Try again in a moment.");
+    const g = await summonCostume({ invoke, payFee, wait, onStep: (s) => setStatus(SUMMON_TEXT[s]), remember },
+      { draftId: draft, costume, imageBase64: image.base64, feeLamports: settings.costume_fee_lamports });
     await afterCostume(g);
   });
 
@@ -137,12 +154,22 @@ export function LaunchWizard() {
     // so an earlier prepare (whose pending launch the server abandons) can never be sent.
     const mint = await launchCoin({
       invoke, wait, onStep: (s) => setStatus(LAUNCH_TEXT[s]),
+      onSent: (m, sig) => setSentLaunch({ generationId: selected, mint: m, signature: sig }),
       signWithWallet: (tx) => {
         if (!connectedIsSignedIn()) throw new Error(WRONG_WALLET); // checked again right before the wallet is asked
         return signTransaction(tx);
       },
       send: (raw) => connection.sendRawTransaction(raw, { maxRetries: 5 }),
     }, { generationId: selected, fields: checked.fields, devBuyLamports });
+    setSentLaunch(null);
+    setDraft(newDraft());
+    router.push(`/coin/?mint=${mint}`);
+  });
+
+  const checkLaunch = () => run(async () => {
+    if (!sentLaunch) return;
+    const mint = await confirmLaunch({ invoke, wait, onStep: (s) => setStatus(LAUNCH_TEXT[s]) }, sentLaunch.mint, sentLaunch.signature);
+    setSentLaunch(null);
     setDraft(newDraft());
     router.push(`/coin/?mint=${mint}`);
   });
@@ -203,7 +230,7 @@ export function LaunchWizard() {
         {pending && (
           <p className="text-sm">A costume you paid for is still brewing. <button className="underline" onClick={checkPayment} disabled={busy}>Check payment</button></p>
         )}
-        <button className="btn justify-self-start" onClick={summon} disabled={busy || !image || !!paused}>🪄 Summon costume</button>
+        <button className="btn justify-self-start" onClick={summon} disabled={busy || !image || !!paused || !!pending}>🪄 Summon costume</button>
         {generations.length > 0 && (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             {generations.map((g) => (
@@ -227,7 +254,11 @@ export function LaunchWizard() {
           </p>
         )}
         {settings?.launches_paused && <p className="text-blood">Launching is paused right now. Try again soon.</p>}
-        <button className="btn justify-self-start text-lg" onClick={launch} disabled={busy || !selected || !settings || !!settings.launches_paused}>🎃 Launch coin</button>
+        {sentLaunch ? (
+          <p className="text-sm">Your coin was sent but hasn't confirmed yet. <button className="underline" onClick={checkLaunch} disabled={busy}>Check launch</button></p>
+        ) : (
+          <button className="btn justify-self-start text-lg" onClick={launch} disabled={busy || !selected || !settings || !!settings.launches_paused}>🎃 Launch coin</button>
+        )}
       </section>
 
       {(status || error) && (
