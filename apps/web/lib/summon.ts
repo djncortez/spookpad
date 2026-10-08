@@ -2,6 +2,7 @@
 // function to check the payment; that same call runs the AI, so the answer is the finished costume.
 import { feeMemo } from "@spookpad/core/fee-check";
 import type { Invoke } from "./call";
+import { StillWaiting, type Expiry } from "./pending";
 
 export type GenerationState = "awaiting_payment" | "paid" | "generating" | "ready" | "failed";
 export interface Generation {
@@ -19,10 +20,11 @@ export interface Generation {
 export type SummonStep = "uploading" | "paying" | "brewing";
 export interface SummonDeps {
   invoke: Invoke;
-  payFee(p: { treasury: string; lamports: number; memo: string }): Promise<string>; // the payment's signature
+  // The wallet signs the fee but nothing is sent yet: the signature is known first, remembered, and only then sent.
+  prepareFee(p: { treasury: string; lamports: number; memo: string }): Promise<{ signature: string; expiry: Expiry; send(): Promise<void> }>;
   wait(ms: number): Promise<void>;
   onStep?(s: SummonStep): void;
-  remember?(generationId: string, signature: string): void; // so a reload can check the payment again
+  remember?(generationId: string, signature: string, expiry: Expiry): void; // so a reload can check the payment again
 }
 
 const POLL_MS = 2000;
@@ -41,20 +43,21 @@ export async function summonCostume(d: SummonDeps, p: { draftId: string; costume
     throw new Error("The costume fee changed from the one shown, so nothing was sent. Reload the page and try again.");
   }
   d.onStep?.("paying");
-  const signature = await d.payFee({ treasury: start.treasury, lamports, memo: start.memo });
-  d.remember?.(start.generation.id, signature);
-  return finishPayment(d, start.generation.id, signature);
+  const fee = await d.prepareFee({ treasury: start.treasury, lamports, memo: start.memo });
+  d.remember?.(start.generation.id, fee.signature, fee.expiry); // before the send, so a crash or reload can never pay twice
+  await fee.send();
+  return finishPayment(d, start.generation.id, fee.signature);
 }
 
 // After the fee is sent: wait until Solana shows it; the same call then summons the costume.
-export async function finishPayment(d: Omit<SummonDeps, "payFee">, generationId: string, signature: string): Promise<Generation> {
+export async function finishPayment(d: Omit<SummonDeps, "prepareFee">, generationId: string, signature: string): Promise<Generation> {
   d.onStep?.("brewing");
   for (let i = 0; i < POLL_TRIES; i++) {
     const r = await d.invoke<{ generation: Generation } | { status: "waiting" }>("costume", { action: "pay", generation_id: generationId, signature });
     if ("generation" in r) return r.generation;
     await d.wait(POLL_MS);
   }
-  throw new Error("Your payment was sent but hasn't confirmed yet. Press “Check payment” in a minute — you won't pay twice.");
+  throw new StillWaiting("Your payment was sent but hasn't confirmed yet. Press “Check payment” in a minute — you won't pay twice.");
 }
 
 export const retryCostume = async (invoke: Invoke, generationId: string): Promise<Generation> =>

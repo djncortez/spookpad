@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import type { Transaction } from "@solana/web3.js";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { DEFAULT_COSTUME } from "@spookpad/core/costumes";
@@ -8,8 +9,12 @@ import { solToLamports } from "@spookpad/core/sol";
 import { checkDevBuy, validateCoinFields } from "@spookpad/core/validate";
 import { useAuth } from "@/lib/auth";
 import { invoke } from "@/lib/call";
-import { draftId as savedDraft, forgetPayment, newDraft, pendingPayment, rememberPayment } from "@/lib/draft";
-import { feeTransaction } from "@/lib/fee-tx";
+import {
+  draftId as savedDraft, forgetLaunch, forgetPayment, newDraft, pendingPayment, rememberLaunch, rememberPayment, sentLaunch as storedLaunch,
+  setDraft as saveDraft, type PendingPayment, type SentLaunch,
+} from "@/lib/draft";
+import { signFee } from "@/lib/fee-tx";
+import { checkPending, isDefinitive, type Expiry } from "@/lib/pending";
 import { solText } from "@/lib/format";
 import { prepareImage, type PreparedImage } from "@/lib/image";
 import { confirmLaunch, launchCoin, type LaunchStep } from "@/lib/launch-coin";
@@ -48,10 +53,12 @@ export function LaunchWizard() {
   const [generations, setGenerations] = useState<Generation[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [devBuy, setDevBuy] = useState("0");
-  const [pending, setPending] = useState<{ generationId: string; signature: string } | null>(null);
-  const pendingRef = useRef<{ generationId: string; signature: string } | null>(null);
+  // A fee sent but not yet seen by the costume function. Kept in state and a ref as well as storage, so it works without storage.
+  const [pending, setPending] = useState<PendingPayment | null>(null);
+  const pendingRef = useRef<PendingPayment | null>(null);
   // A launch that was sent but not yet seen on Solana: check it again, never launch that costume again with a new mint.
-  const [sentLaunch, setSentLaunch] = useState<{ generationId: string; mint: string; signature: string } | null>(null);
+  const [sentLaunch, setSentLaunch] = useState<SentLaunch | null>(null);
+  const sentLaunchRef = useRef<SentLaunch | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -60,12 +67,20 @@ export function LaunchWizard() {
     // browser-only values (localStorage), read once after mount
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setDraft(savedDraft());
-    const stored = pendingPayment();
-    pendingRef.current = stored;
-    setPending(stored);
     fetchSettings().then(setSettings).catch((e: Error) => setError(e.message));
     fetchCostumes().then(setCostumes).catch((e: Error) => setError(e.message));
   }, []);
+
+  // In-flight records belong to a wallet: load the signed-in wallet's, and nobody else's.
+  useEffect(() => {
+    const p = auth.wallet ? pendingPayment(auth.wallet) : null;
+    const l = auth.wallet ? storedLaunch(auth.wallet) : null;
+    pendingRef.current = p;
+    sentLaunchRef.current = l;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPending(p);
+    setSentLaunch(l);
+  }, [auth.wallet]);
 
   const refresh = useCallback(async () => {
     if (!draft || !auth.wallet) return;
@@ -81,14 +96,16 @@ export function LaunchWizard() {
     void refresh().catch((e: Error) => setError(e.message));
   }, [refresh]);
 
-  const payFee = useCallback(async (p: { treasury: string; lamports: number; memo: string }) => {
+  const prepareFee = useCallback(async (p: { treasury: string; lamports: number; memo: string }) => {
     const adapter = wallet.wallet?.adapter;
     if (!adapter) { modal.setVisible(true); throw new Error("Pick your wallet, then press Summon again."); }
     if (!adapter.connected) await adapter.connect();
     const from = adapter.publicKey?.toBase58();
     if (!from) throw new Error("Connect your wallet first.");
     if (auth.wallet && from !== auth.wallet) throw new Error(WRONG_WALLET);
-    return adapter.sendTransaction(feeTransaction({ from, ...p }), connection);
+    if (!("signTransaction" in adapter) || typeof adapter.signTransaction !== "function") throw new Error("Your wallet can't sign this payment. Try Phantom.");
+    const sign = adapter.signTransaction.bind(adapter) as <T extends Transaction>(tx: T) => Promise<T>;
+    return signFee({ connection, signTransaction: sign }, { from, ...p });
   }, [wallet, modal, auth.wallet, connection]);
 
   const run = async (job: () => Promise<void>) => {
@@ -97,19 +114,25 @@ export function LaunchWizard() {
     try { await job(); } catch (e) { setError((e as Error).message || "Something went wrong."); } finally { setBusy(false); setStatus(null); }
   };
 
-  // Kept in state as well as storage, so Summon stays blocked even where localStorage is unavailable.
-  const remember = (generationId: string, signature: string) => {
-    rememberPayment(generationId, signature);
-    pendingRef.current = { generationId, signature };
-    setPending(pendingRef.current);
+  const remember = (generationId: string, signature: string, expiry: Expiry) => {
+    const p = { generationId, draftId: draft ?? "", signature, expiry };
+    if (auth.wallet) rememberPayment(auth.wallet, p);
+    pendingRef.current = p;
+    setPending(p);
+  };
+
+  // The payment has definitely resolved (or can never land): forget it, and show the draft its costume belongs to.
+  const resolvePayment = () => {
+    const p = pendingRef.current;
+    if (!p) return;
+    if (auth.wallet) forgetPayment(auth.wallet);
+    pendingRef.current = null;
+    setPending(null);
+    if (p.draftId && p.draftId !== draft) { saveDraft(p.draftId); setDraft(p.draftId); }
   };
 
   const afterCostume = async (g: Generation) => {
-    if (pendingRef.current?.generationId === g.id) {
-      forgetPayment();
-      pendingRef.current = null;
-      setPending(null);
-    }
+    if (pendingRef.current?.generationId === g.id) resolvePayment();
     if (g.state === "ready") setSelected(g.id);
     else if (g.error) setError(g.error);
     await refresh();
@@ -118,14 +141,25 @@ export function LaunchWizard() {
   const summon = () => run(async () => {
     if (!image || !draft || pendingRef.current) return;
     if (!settings) throw new Error("SpookPad's settings are still loading. Try again in a moment.");
-    const g = await summonCostume({ invoke, payFee, wait, onStep: (s) => setStatus(SUMMON_TEXT[s]), remember },
-      { draftId: draft, costume, imageBase64: image.base64, feeLamports: settings.costume_fee_lamports });
+    let g: Generation;
+    try {
+      g = await summonCostume({ invoke, prepareFee, wait, onStep: (s) => setStatus(SUMMON_TEXT[s]), remember },
+        { draftId: draft, costume, imageBase64: image.base64, feeLamports: settings.costume_fee_lamports });
+    } catch (e) {
+      if (pendingRef.current && isDefinitive(e)) resolvePayment(); // the server said no for good
+      throw e;
+    }
     await afterCostume(g);
   });
 
   const checkPayment = () => run(async () => {
-    if (!pending) return;
-    await afterCostume(await finishPayment({ invoke, wait, onStep: (s) => setStatus(SUMMON_TEXT[s]) }, pending.generationId, pending.signature));
+    const p = pendingRef.current;
+    if (!p) return;
+    const r = await checkPending(() => finishPayment({ invoke, wait, onStep: (s) => setStatus(SUMMON_TEXT[s]) }, p.generationId, p.signature),
+      connection, p.signature, p.expiry, "That payment never went through — you can summon again.");
+    if (r.kind === "done") await afterCostume(r.value);
+    else if (r.kind === "cleared") { resolvePayment(); setError(r.message); await refresh(); }
+    else setError("Still waiting for Solana. Try again in a minute — you won't pay twice.");
   });
 
   const retry = (id: string) => run(async () => {
@@ -137,6 +171,12 @@ export function LaunchWizard() {
   const latest = useRef({ signedIn: auth.wallet, connected: wallet.publicKey?.toBase58() });
   useEffect(() => { latest.current = { signedIn: auth.wallet, connected: wallet.publicKey?.toBase58() }; });
   const connectedIsSignedIn = () => !!latest.current.signedIn && latest.current.connected === latest.current.signedIn;
+
+  const clearLaunch = () => {
+    if (auth.wallet) forgetLaunch(auth.wallet);
+    sentLaunchRef.current = null;
+    setSentLaunch(null);
+  };
 
   const launch = () => run(async () => {
     const checked = validateCoinFields(fields);
@@ -152,26 +192,39 @@ export function LaunchWizard() {
     if (!connectedIsSignedIn()) throw new Error(WRONG_WALLET);
     // launchCoin makes a new mint keypair and a new prepared transaction on every press and keeps neither afterwards,
     // so an earlier prepare (whose pending launch the server abandons) can never be sent.
-    const mint = await launchCoin({
+    let mint: string;
+    try {
+      mint = await launchCoin({
       invoke, wait, onStep: (s) => setStatus(LAUNCH_TEXT[s]),
-      onSent: (m, sig) => setSentLaunch({ generationId: selected, mint: m, signature: sig }),
+      onSent: (m, sig, expiry) => { // before the send: a reload or crash must find this launch
+        const l = { generationId: selected, mint: m, signature: sig, expiry };
+        if (auth.wallet) rememberLaunch(auth.wallet, l);
+        sentLaunchRef.current = l;
+        setSentLaunch(l);
+      },
       signWithWallet: (tx) => {
         if (!connectedIsSignedIn()) throw new Error(WRONG_WALLET); // checked again right before the wallet is asked
         return signTransaction(tx);
       },
       send: (raw) => connection.sendRawTransaction(raw, { maxRetries: 5 }),
-    }, { generationId: selected, fields: checked.fields, devBuyLamports });
-    setSentLaunch(null);
+      }, { generationId: selected, fields: checked.fields, devBuyLamports });
+    } catch (e) {
+      if (isDefinitive(e) && sentLaunchRef.current) clearLaunch(); // the server said no for good
+      throw e;
+    }
+    clearLaunch();
     setDraft(newDraft());
     router.push(`/coin/?mint=${mint}`);
   });
 
   const checkLaunch = () => run(async () => {
-    if (!sentLaunch) return;
-    const mint = await confirmLaunch({ invoke, wait, onStep: (s) => setStatus(LAUNCH_TEXT[s]) }, sentLaunch.mint, sentLaunch.signature);
-    setSentLaunch(null);
-    setDraft(newDraft());
-    router.push(`/coin/?mint=${mint}`);
+    const l = sentLaunchRef.current;
+    if (!l) return;
+    const r = await checkPending(() => confirmLaunch({ invoke, wait, onStep: (s) => setStatus(LAUNCH_TEXT[s]) }, l.mint, l.signature),
+      connection, l.signature, l.expiry, "That launch never went through — you can launch again.");
+    if (r.kind === "done") { clearLaunch(); setDraft(newDraft()); router.push(`/coin/?mint=${r.value}`); }
+    else if (r.kind === "cleared") { clearLaunch(); setError(r.message); }
+    else setError("Still waiting for Solana. Try again in a minute — you can't launch this costume twice.");
   });
 
   const costumeOf = (slug: string) => costumes.find((c) => c.slug === slug);
@@ -255,7 +308,7 @@ export function LaunchWizard() {
         )}
         {settings?.launches_paused && <p className="text-blood">Launching is paused right now. Try again soon.</p>}
         {sentLaunch ? (
-          <p className="text-sm">Your coin was sent but hasn't confirmed yet. <button className="underline" onClick={checkLaunch} disabled={busy}>Check launch</button></p>
+          <p className="text-sm">Your coin was sent but hasn&apos;t confirmed yet. <button className="underline" onClick={checkLaunch} disabled={busy}>Check launch</button></p>
         ) : (
           <button className="btn justify-self-start text-lg" onClick={launch} disabled={busy || !selected || !settings || !!settings.launches_paused}>🎃 Launch coin</button>
         )}

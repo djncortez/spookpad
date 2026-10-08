@@ -6,7 +6,9 @@
 import { Keypair, VersionedTransaction } from "@solana/web3.js";
 import { fromBase64 } from "@spookpad/core/encoding";
 import type { CoinFields } from "@spookpad/core/validate";
+import bs58 from "bs58";
 import type { Invoke } from "./call";
+import { StillWaiting, type Expiry } from "./pending";
 
 export type LaunchStep = "preparing" | "signing" | "sending" | "confirming";
 export interface LaunchDeps {
@@ -15,7 +17,7 @@ export interface LaunchDeps {
   send(raw: Uint8Array): Promise<string>;
   wait(ms: number): Promise<void>;
   onStep?(s: LaunchStep): void;
-  onSent?(mint: string, signature: string): void; // so an unconfirmed launch can be checked again, not redone
+  onSent?(mint: string, signature: string, expiry: Expiry): void; // called BEFORE send // so an unconfirmed launch can be checked again, not redone
 }
 
 const POLL_MS = 2000;
@@ -32,8 +34,10 @@ export async function launchCoin(d: LaunchDeps, p: { generationId: string; field
   const signed = await d.signWithWallet(VersionedTransaction.deserialize(fromBase64(prep.transaction))); // the wallet signs first
   signed.sign([mint]);
   d.onStep?.("sending");
-  const signature = await d.send(signed.serialize());
-  d.onSent?.(address, signature);
+  // The signature is known from the signed transaction, so it is remembered before the send can reach Solana.
+  const signature = bs58.encode(signed.signatures[0]); // the wallet is the fee payer, so its signature is first
+  d.onSent?.(address, signature, { blockhash: signed.message.recentBlockhash });
+  await d.send(signed.serialize());
   return confirmLaunch(d, address, signature);
 }
 
@@ -45,5 +49,5 @@ export async function confirmLaunch(d: Pick<LaunchDeps, "invoke" | "wait" | "onS
     if (r.status === "live") return address;
     await d.wait(POLL_MS);
   }
-  throw new Error(`Your coin was sent but hasn't confirmed yet. It shows in the Graveyard once it does. Coin address: ${address}`);
+  throw new StillWaiting(`Your coin was sent but hasn't confirmed yet. It shows in the Graveyard once it does. Coin address: ${address}`);
 }
