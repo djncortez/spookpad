@@ -28,8 +28,8 @@ the coin's creator and signs the launch themselves.**
 
 1. **Connect wallet:** Phantom / Solflare through Supabase `signInWithWeb3` (as IdeaPad).
 2. **Coin details:** name 1–32 chars; ticker 2–10 chars `A–Z0–9` (stored uppercase); description ≤ 200 chars;
-   optional X and Telegram links (https only); image PNG / JPG / WebP ≤ 5 MB. No GIF: the AI returns a still image.
-   The browser crops to square and resizes to 1024×1024 before upload. The form states the rules: no real people, no
+   optional X and Telegram links (https only); image PNG / JPG / WebP (up to 20 MB picked). No GIF: the AI returns a
+   still image. The browser crops to square and resizes to 1024×1024 (≤ 3 MB) before upload. The form states the rules: no real people, no
    real brands or trademarks, no targeting private individuals.
 3. **Pick a costume** (default Ghost sheet).
 4. **"Summon costume":**
