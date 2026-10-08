@@ -26,9 +26,22 @@ export class StillWaiting extends Error {}
 // Network failures (no answer) are NOT this: the transaction may have gone out.
 export class NotSent extends Error {}
 
-export async function sendRaw(connection: Pick<Connection, "sendRawTransaction">, raw: Uint8Array): Promise<string> {
+// After the first send succeeds, the same signed bytes are re-sent every REBROADCAST_MS for REBROADCAST_TIMES (errors
+// ignored): one broadcast is often dropped by busy leaders. Re-sending identical bytes can never pay twice.
+export const REBROADCAST_MS = 2_000;
+export const REBROADCAST_TIMES = 20;
+
+export async function sendRaw(connection: Pick<Connection, "sendRawTransaction">, raw: Uint8Array, rebroadcast = true): Promise<string> {
   try {
-    return await connection.sendRawTransaction(raw, { maxRetries: 5 });
+    const signature = await connection.sendRawTransaction(raw, { maxRetries: 5 });
+    if (rebroadcast) {
+      let left = REBROADCAST_TIMES;
+      const timer = setInterval(() => {
+        if (--left <= 0) clearInterval(timer);
+        connection.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {});
+      }, REBROADCAST_MS);
+    }
+    return signature;
   } catch (e) {
     if (e instanceof SendTransactionError) {
       const why = (e.transactionError.message || "").replace(/\.$/, "");

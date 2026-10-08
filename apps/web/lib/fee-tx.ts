@@ -2,14 +2,21 @@
 // (spec §2 step 4). The costume function checks exactly these instructions.
 import bs58 from "bs58";
 import type { Connection } from "@solana/web3.js";
-import { PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
+import { ComputeBudgetProgram, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { Buffer } from "buffer";
 import { MEMO_PROGRAM_ID } from "@spookpad/core/fee-check";
 import { sendRaw, type Expiry } from "./pending";
 
+// Without a priority fee, busy validators drop the payment and it never lands. A transfer plus a memo needs well under
+// 40k compute units; at 500k micro-lamports per unit the priority fee is at most 0.00002 SOL.
+export const FEE_COMPUTE_UNITS = 40_000;
+export const FEE_PRICE_MICROLAMPORTS = 500_000;
+
 export function feeTransaction(p: { from: string; treasury: string; lamports: number; memo: string }): Transaction {
   const from = new PublicKey(p.from);
   return new Transaction().add(
+    ComputeBudgetProgram.setComputeUnitLimit({ units: FEE_COMPUTE_UNITS }),
+    ComputeBudgetProgram.setComputeUnitPrice({ microLamports: FEE_PRICE_MICROLAMPORTS }),
     SystemProgram.transfer({ fromPubkey: from, toPubkey: new PublicKey(p.treasury), lamports: p.lamports }),
     new TransactionInstruction({
       programId: new PublicKey(MEMO_PROGRAM_ID),

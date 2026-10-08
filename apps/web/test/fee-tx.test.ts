@@ -1,18 +1,52 @@
-import { expect, test } from "vitest";
-import { Keypair, SendTransactionError, SystemInstruction } from "@solana/web3.js";
+import { expect, test, vi } from "vitest";
+import { ComputeBudgetInstruction, Keypair, SendTransactionError, SystemInstruction } from "@solana/web3.js";
 import { MEMO_PROGRAM_ID } from "@spookpad/core/fee-check";
 import bs58 from "bs58";
-import { feeTransaction, signFee } from "../lib/fee-tx";
-import { NotSent, sendRaw } from "../lib/pending";
+import { FEE_COMPUTE_UNITS, FEE_PRICE_MICROLAMPORTS, feeTransaction, signFee } from "../lib/fee-tx";
+import { NotSent, REBROADCAST_MS, REBROADCAST_TIMES, sendRaw } from "../lib/pending";
 
-test("one transfer to the treasury plus the generation's memo", () => {
+test("a priority fee, one transfer to the treasury, plus the generation's memo", () => {
   const from = Keypair.generate().publicKey.toBase58();
   const treasury = Keypair.generate().publicKey.toBase58();
   const tx = feeTransaction({ from, treasury, lamports: 1_000_000, memo: "spookpad:abc" });
-  const t = SystemInstruction.decodeTransfer(tx.instructions[0]);
+  expect(tx.instructions).toHaveLength(4);
+  expect(ComputeBudgetInstruction.decodeSetComputeUnitLimit(tx.instructions[0]).units).toBe(FEE_COMPUTE_UNITS);
+  expect(Number(ComputeBudgetInstruction.decodeSetComputeUnitPrice(tx.instructions[1]).microLamports)).toBe(FEE_PRICE_MICROLAMPORTS);
+  // the most the priority fee can cost: 0.00002 SOL
+  expect((FEE_COMPUTE_UNITS * FEE_PRICE_MICROLAMPORTS) / 1e6).toBeLessThanOrEqual(20_000);
+  const t = SystemInstruction.decodeTransfer(tx.instructions[2]);
   expect([t.fromPubkey.toBase58(), t.toPubkey.toBase58(), Number(t.lamports)]).toEqual([from, treasury, 1_000_000]);
-  expect(tx.instructions[1].programId.toBase58()).toBe(MEMO_PROGRAM_ID);
-  expect(Buffer.from(tx.instructions[1].data).toString("utf8")).toBe("spookpad:abc");
+  expect(tx.instructions[3].programId.toBase58()).toBe(MEMO_PROGRAM_ID);
+  expect(Buffer.from(tx.instructions[3].data).toString("utf8")).toBe("spookpad:abc");
+});
+
+test("sendRaw re-sends the same bytes until the rebroadcast window ends", async () => {
+  vi.useFakeTimers();
+  try {
+    const sent: { skipPreflight?: boolean }[] = [];
+    const raw = new Uint8Array([1, 2, 3]);
+    const connection = { sendRawTransaction: async (b: Uint8Array, o?: { skipPreflight?: boolean }) => { expect(b).toBe(raw); sent.push(o ?? {}); return "sig"; } };
+    expect(await sendRaw(connection, raw)).toBe("sig");
+    expect(sent).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(REBROADCAST_MS * (REBROADCAST_TIMES + 5));
+    expect(sent).toHaveLength(1 + REBROADCAST_TIMES);
+    expect(sent.slice(1).every((o) => o.skipPreflight === true)).toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("sendRaw doesn't re-send when the first send was refused", async () => {
+  vi.useFakeTimers();
+  try {
+    let calls = 0;
+    const refused = new SendTransactionError({ action: "simulate", signature: "", transactionMessage: "insufficient funds" });
+    await sendRaw({ sendRawTransaction: async () => { calls++; throw refused; } }, new Uint8Array(1)).catch(() => {});
+    await vi.advanceTimersByTimeAsync(REBROADCAST_MS * 5);
+    expect(calls).toBe(1);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test("signFee knows the signature and blockhash before anything is sent", async () => {
