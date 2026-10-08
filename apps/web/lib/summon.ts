@@ -43,6 +43,8 @@ const POLL_TRIES = 45; // about 90 seconds
 // p.treasury is SpookPad's treasury as configured in the site (NEXT_PUBLIC_TREASURY_ADDRESS): the fee is never paid
 // anywhere else, whatever the server answers.
 export async function summonCostume(d: SummonDeps, p: { draftId: string; costume: string; imageBase64: string; feeLamports: number; treasury: string }): Promise<Generation> {
+  // Checked before start: without it no fee could ever be paid, so nothing is uploaded and no costume row is made.
+  if (!p.treasury) throw new Error("SpookPad's treasury address isn't set up on this site, so costumes can't be summoned yet.");
   d.onStep?.("uploading");
   const start = await d.invoke<{ generation: Generation; fee_lamports: number; treasury: string; memo: string }>("costume", {
     action: "start", draft_id: p.draftId, costume: p.costume, image: p.imageBase64,
@@ -50,7 +52,7 @@ export async function summonCostume(d: SummonDeps, p: { draftId: string; costume
   if (start.generation.state !== "awaiting_payment") return start.generation; // a free costume
   // Never sign what the server did not promise: the memo must name this generation and the fee must be the one shown.
   const lamports = Number(start.fee_lamports);
-  if (!p.treasury || start.treasury !== p.treasury) {
+  if (start.treasury !== p.treasury) {
     throw new Error("The costume fee would go to a wallet that isn't SpookPad's treasury, so nothing was sent.");
   }
   if (start.memo !== feeMemo(start.generation.id)) throw new Error("The payment details didn't match this costume, so nothing was sent. Try again.");

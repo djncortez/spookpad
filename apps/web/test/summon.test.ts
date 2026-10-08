@@ -61,6 +61,14 @@ describe("summonCostume", () => {
     expect(order[0]).toBe("remember");
   });
 
+  test("without a configured treasury nothing is uploaded and no costume is started", async () => {
+    const calls: unknown[] = [];
+    const invoke = (async (_n: string, b: unknown) => { calls.push(b); return startAnswer(gen("awaiting_payment")); }) as Invoke;
+    await expect(summonCostume({ invoke, wait: async () => {}, prepareFee: async () => { throw new Error("must not pay"); } },
+      { draftId: "d", costume: "ghost", imageBase64: "AAAA", feeLamports: 1_000_000, treasury: "" })).rejects.toThrow(/treasury address isn't set up/);
+    expect(calls).toEqual([]);
+  });
+
   test("refuses to sign when the memo does not name the generation", async () => {
     const invoke = (async () => ({ ...startAnswer(gen("awaiting_payment")), memo: "spookpad:other" })) as Invoke;
     await expect(summonCostume({ invoke, wait: async () => {}, prepareFee: async () => { throw new Error("must not pay"); } },

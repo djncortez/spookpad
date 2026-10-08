@@ -327,10 +327,11 @@ export function LaunchWizard() {
         </div>
         <CostumePicker costumes={costumes} value={costume} onChange={setCostume} disabled={busy} />
         {paused && <p className="text-blood">{paused}</p>}
+        {!publicEnv.treasury && <p className="text-blood">This site isn&apos;t set up yet (no treasury address), so summoning and launching are off.</p>}
         {pending && (
           <p className="text-sm">A costume you paid for is still brewing. <button className="underline" onClick={checkPayment} disabled={busy}>Check payment</button></p>
         )}
-        <button className="btn justify-self-start" onClick={summon} disabled={busy || !image || !!paused || !!pending}>🪄 Summon costume</button>
+        <button className="btn justify-self-start" onClick={summon} disabled={busy || !image || !!paused || !!pending || !publicEnv.treasury}>🪄 Summon costume</button>
         {generations.length > 0 && (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             {generations.map((g) => (
@@ -359,7 +360,7 @@ export function LaunchWizard() {
         {sentLaunch ? (
           <p className="text-sm">Your coin was sent but hasn&apos;t confirmed yet. <button className="underline" onClick={checkLaunch} disabled={busy}>Check launch</button></p>
         ) : (
-          <button className="btn justify-self-start text-lg" onClick={launch} disabled={busy || !selected || !settings || !!settings.launches_paused}>🎃 Launch coin</button>
+          <button className="btn justify-self-start text-lg" onClick={launch} disabled={busy || !selected || !settings || !!settings.launches_paused || !publicEnv.treasury}>🎃 Launch coin</button>
         )}
       </section>
 
