@@ -103,7 +103,6 @@ export function LaunchWizard() {
 
   useEffect(() => {
     // refresh() sets state only after its network await
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void refresh().catch((e: Error) => setError(e.message));
   }, [refresh]);
 

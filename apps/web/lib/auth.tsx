@@ -49,7 +49,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const connected = wallet.publicKey?.toBase58();
     // signOut() only sets state after a network await
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (signedIn && connected && connected !== signedIn) void signOut();
   }, [wallet.publicKey, signedIn, signOut]);
 
