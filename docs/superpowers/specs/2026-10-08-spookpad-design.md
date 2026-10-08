@@ -40,8 +40,9 @@ the coin's creator and signs the launch themselves.**
    4. The page shows original and costumed image side by side. "Summon again" (same or another costume) starts a new
       paid generation. All of the trader's ready generations for this draft are shown; the trader picks one.
 5. **Launch:** optional dev buy (0–`MAX_DEV_BUY_SOL`, default 5 SOL). "Launch" calls `prepare-launch` (§4.2); Phantom
-   shows one transaction: pump.fun create (+ dev buy) + launch-fee transfer. The browser signs with the mint keypair
-   it generated, Phantom signs as creator, the browser sends via Helius, then calls `confirm-launch` (§4.3).
+   shows one transaction: pump.fun create (+ SpookPad's own pump.fun dev buy) + launch-fee transfer. The browser
+   signs with the mint keypair it generated, Phantom signs as creator, the browser sends via Helius, then calls
+   `confirm-launch` (§4.3).
 6. The coin is listed on the **Graveyard** feed and gets a coin page.
 
 ## 3. Architecture
@@ -54,7 +55,7 @@ Browser (Next.js static export, Netlify CDN)
 Supabase (free plan)
   Edge Functions (Deno):
     costume         create generation · verify fee payment · OpenRouter edit · store PNG
-    prepare-launch  IPFS upload (costumed PNG + metadata) · PumpPortal create tx · check · add fee transfer
+    prepare-launch  IPFS upload (costumed PNG + metadata) · PumpPortal create-only tx · check · add own dev buy + fee
     confirm-launch  verify the create tx on-chain · insert launch
     admin           settings, prompts, pause switch, OpenRouter credit balance
   Storage bucket: art (public; originals/<uuid>.<ext> and costumes/<uuid>.<ext>, unguessable paths, so the coin
@@ -69,7 +70,8 @@ Outside: Helius RPC · OpenRouter · PumpPortal trade-local · pump.fun IPFS (Pi
 - **No spending keys on the server.** The server never holds a key that can move funds. The treasury is a wallet
   the owner controls in Phantom; functions only read the chain.
 - **Shared logic** lives in `packages/core` (pure TypeScript, no I/O), as in IdeaPad. Copy and adapt from IdeaPad:
-  `pump-tx.ts` (create-transaction checker), `pump-services.ts` (IPFS + PumpPortal), wallet sign-in, admin sign-in
+  `pump-tx.ts` (create-transaction checker; SpookPad adds `pump-buy.ts`, its own dev buy), `pump-services.ts` (IPFS +
+  PumpPortal), wallet sign-in, admin sign-in
   (`ADMIN_WALLET`, `signMessage`, `/<ADMIN_SLUG>`), build scripts.
 
 ## 4. Functions
@@ -96,14 +98,22 @@ Outside: Helius RPC · OpenRouter · PumpPortal trade-local · pump.fun IPFS (Pi
 browser's mint keypair):
 1. The generation must be `ready`, belong to the wallet, and not already be launched. Validates fields.
 2. Uploads the **stored costumed PNG** and metadata to IPFS once per generation (cached `metadata_uri`).
-3. Asks PumpPortal `trade-local` for `action:"create"` with `publicKey` = trader wallet, `mint`, metadata, dev buy
-   `amount = devBuySol`, `denominatedInSol: "true"`, `slippage` 10, `priorityFee` 0.0005, `pool: "pump"`.
-4. Checks the transaction with the adapted `pump-tx` checker: creates exactly this mint with this name, symbol and
-   URI; creator and fee payer = trader; dev buy ≤ requested; no other SOL transfers beyond PumpPortal's allowed
-   service fee.
-5. Decompiles the message, appends `SystemProgram.transfer(trader → TREASURY_ADDRESS, LAUNCH_FEE_LAMPORTS)`,
-   recompiles with the same blockhash and lookup tables. Returns the unsigned transaction (base64) and records a
-   `launches` row `pending` (mint, wallet, generation, fields).
+3. Asks PumpPortal `trade-local` for `action:"create"` with `publicKey` = trader wallet, `mint`, metadata,
+   **`amount: 0` (create only, always)**, `denominatedInSol: "true"`, `slippage` 10, `priorityFee` 0.0005,
+   `pool: "pump"`. PumpPortal routes dev buys through its own program (`FAdo9NCw…`, seen 2026-10-08); the trader's
+   wallet only signs pump.fun, System, ComputeBudget and Associated Token instructions, so SpookPad never asks it for
+   a buy.
+4. Reads the address-lookup tables the transaction uses (Helius `getMultipleAccounts`; addresses start at byte 56) and
+   checks it with the adapted `pump-tx` checker: creates exactly this mint with this name, symbol and URI; creator and
+   fee payer = trader; no buy; no other SOL transfers beyond PumpPortal's allowed service fee.
+5. Adds, keeping PumpPortal's instructions, blockhash and lookup tables: when `devBuySol` > 0, SpookPad's own dev buy
+   (Associated Token `createIdempotent` for the trader's Token-2022 account, then pump.fun `buy_exact_sol_in`
+   spending exactly the chosen lamports; it is in the same transaction as the create, so nobody trades first), then
+   `SystemProgram.transfer(trader → TREASURY_ADDRESS, LAUNCH_FEE_LAMPORTS)`. The appends are lookup-table aware:
+   an account already loaded (static or from a table) is reused, never listed twice; a called program a table loads
+   (System, Associated Token) moves into the static keys; a new account the table holds is loaded from it; a
+   table-loaded read-only account needed writable is refused. Refuses a result over 1232 bytes. Returns the unsigned
+   transaction (base64) and records a `launches` row `pending` (mint, wallet, generation, fields).
 
 ### 4.3 `confirm-launch`
 `POST {mint, signature}`: fetches the transaction (`confirmed`); it must be the pending launch's create transaction
@@ -200,7 +210,8 @@ the frontend design skill.
 
 Vitest, run in Node like IdeaPad:
 - `core`: field validation, fee-payment verifier (amount, recipient, payer, memo, failed tx), create-tx checker,
-  fee-transfer append (round-trip decompile/recompile, lookup tables kept), prompt builder.
+  lookup-table-aware appends (decompiled with web3.js, no account listed twice), SpookPad's dev buy (PDAs checked
+  against mainnet), the whole launch on a live PumpPortal create (opt-in mainnet simulation), prompt builder.
 - `functions`: each handler with fake Helius, OpenRouter, PumpPortal, IPFS and storage — happy path, reused
   signature, AI failure then free retry, pause, low credit, launch confirm.
 - Migrations: RLS lock-down test against embedded Postgres (as IdeaPad).
