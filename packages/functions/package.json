@@ -1,0 +1,9 @@
+{
+  "name": "@spookpad/functions",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@spookpad/core": "*",
+    "@supabase/supabase-js": "^2.117.2"
+  }
+}

@@ -1,0 +1,8 @@
+[build]
+  command = "npm run build"
+  publish = "apps/web/out"
+
+[build.environment]
+  NODE_VERSION = "22"
+  # A plain static export: the Next.js runtime plugin must not run.
+  NETLIFY_NEXT_PLUGIN_SKIP = "true"

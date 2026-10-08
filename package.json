@@ -1,0 +1,19 @@
+{
+  "name": "spookpad",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@solana/web3.js": "^1.99.0",
+    "embedded-postgres": "^17.10.0-beta.17",
+    "esbuild": "^0.28.2",
+    "postgres": "^3.4.9",
+    "typescript": "^5",
+    "vitest": "^5.0.2"
+  }
+}

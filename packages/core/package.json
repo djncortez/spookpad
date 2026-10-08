@@ -1,0 +1,11 @@
+{
+  "name": "@spookpad/core",
+  "private": true,
+  "type": "module",
+  "exports": { "./*": "./src/*.ts" },
+  "dependencies": {
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.0.0",
+    "bs58": "^6.0.0"
+  }
+}

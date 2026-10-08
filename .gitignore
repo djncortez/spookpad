@@ -1,0 +1,12 @@
+node_modules/
+.env
+*.log
+apps/web/.next/
+apps/web/out/
+apps/web/public/_headers
+apps/web/next-env.d.ts
+apps/web/tsconfig.tsbuildinfo
+supabase/functions/*/bundle.mjs
+supabase/.temp/
+.netlify/
+.superpowers/
