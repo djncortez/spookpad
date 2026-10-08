@@ -90,10 +90,10 @@ describe("buildLaunchTx defends its own preconditions", () => {
   const str = (v: string) => { const b = new TextEncoder().encode(v); const out = new Uint8Array(4 + b.length); new DataView(out.buffer).setUint32(0, b.length, true); out.set(b, 4); return [...out]; };
   const create = (v: 1 | 2) => new Uint8Array([...(v === 2 ? CREATE_V2 : CREATE_V1), ...str("N"), ...str("S"), ...str("U"), ...new PublicKey(trader).toBytes()]);
   // keys: 0 trader, 1 mint, 2 pump program; the create's account 0 is `mintIndex`
-  const created = (v: 1 | 2, mintIndex = 1): DecodedTx => decodeTransaction(serialize([new Uint8Array(64), new Uint8Array(64)], encodeMessage({
+  const created = (v: 1 | 2, mintIndex = 1, creates = 1): DecodedTx => decodeTransaction(serialize([new Uint8Array(64), new Uint8Array(64)], encodeMessage({
     version: 0, header: { requiredSignatures: 2, readonlySigned: 0, readonlyUnsigned: 1 }, staticKeys: [trader, mint, PUMP_PROGRAM],
     recentBlockhash: new PublicKey(new Uint8Array(32).fill(7)).toBase58(),
-    instructions: [{ programIndex: 2, accounts: [mintIndex, 0], data: create(v) }],
+    instructions: Array.from({ length: creates }, () => ({ programIndex: 2, accounts: [mintIndex, 0], data: create(v) })),
   })));
   const parts = { trader, mint, devBuyLamports: 0n, treasury: trader, launchFeeLamports: 0n };
   test("builds when the preconditions hold", () => {
@@ -107,6 +107,9 @@ describe("buildLaunchTx defends its own preconditions", () => {
   });
   test("throws when the create isn't v2", () => {
     expect(() => buildLaunchTx(created(1), {}, parts)).toThrow(/create_v2/);
+  });
+  test("throws when there is more than one create", () => {
+    expect(() => buildLaunchTx(created(2, 1, 2), {}, parts)).toThrow(/create_v2/);
   });
 });
 

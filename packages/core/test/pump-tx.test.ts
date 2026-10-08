@@ -140,7 +140,6 @@ describe("checkCreateTx: ComputeBudget instructions", () => {
   test("accepts a limit and a price, each once, at or under the fee cap", () => {
     // 200_000 units * 25_000_000_000 micro-lamports = 5_000_000 lamports exactly
     expect(checkCreateTx(tx({ extra: [budget(2, 200_000n), budget(3, 25_000_000n)] }), want()).ok).toBe(true);
-    expect(checkCreateTx(tx({ extra: [budget(3, 1_000n)] }), want()).ok).toBe(true);
     expect(checkCreateTx(tx({ extra: [budget(2, 320_000n)] }), want()).ok).toBe(true);
     expect(MAX_PRIORITY_FEE_LAMPORTS).toBe(5_000_000n);
   });
@@ -148,9 +147,13 @@ describe("checkCreateTx: ComputeBudget instructions", () => {
     expect(checkCreateTx(tx({ extra: [budget(2, 200_000n), budget(3, 25_000_001n)] }), want())).toEqual({ ok: false, error: fee });
     expect(checkCreateTx(tx({ extra: [budget(2, 1_400_000n), budget(3, 18_446_744_073_709_551_615n)] }), want())).toEqual({ ok: false, error: fee });
   });
-  test("without a limit instruction the limit is 200_000 per other instruction", () => {
-    expect(checkCreateTx(tx({ extra: [budget(3, 25_000_000n)] }), want()).ok).toBe(true); // 1 instruction
-    expect(checkCreateTx(tx({ extra: [budget(3, 25_000_000n), transfer(1n)] }), want())).toEqual({ ok: false, error: fee }); // 2
+  test("refuses a price without a limit: buildLaunchTx appends instructions, so the real fee couldn't be bounded", () => {
+    const noLimit = "The transaction sets a priority fee without a compute-unit limit.";
+    expect(checkCreateTx(tx({ extra: [budget(3, 1_000n)] }), want())).toEqual({ ok: false, error: noLimit });
+    expect(checkCreateTx(tx({ extra: [budget(3, 25_000_000n), transfer(1n)] }), want())).toEqual({ ok: false, error: noLimit });
+  });
+  test("no price and no limit is fine (fee 0)", () => {
+    expect(checkCreateTx(tx({}), want()).ok).toBe(true);
   });
   test("refuses an unknown ComputeBudget instruction, duplicates and bad lengths", () => {
     const unknown: TxInstruction = { programIndex: 20, accounts: [], data: new Uint8Array([1, 0, 0, 0, 0]) };

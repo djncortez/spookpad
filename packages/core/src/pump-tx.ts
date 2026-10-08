@@ -22,7 +22,6 @@ const ALLOWED_PROGRAMS = new Set([PUMP_PROGRAM, COMPUTE_BUDGET, SYSTEM_PROGRAM])
 export const MAX_EXTRA_TRANSFER_LAMPORTS = 10_000_000n;
 // Priority fee = compute unit limit x unit price. The live PumpPortal create pays 0.0005 SOL; refuse anything above 0.005 SOL.
 export const MAX_PRIORITY_FEE_LAMPORTS = 5_000_000n;
-const DEFAULT_UNITS_PER_INSTRUCTION = 200_000n; // what Solana assumes per instruction when no SetComputeUnitLimit is sent
 
 export interface CreateArgs {
   version: 1 | 2;
@@ -91,7 +90,6 @@ export function checkCreateTx(tx: DecodedTx, want: ExpectedCreate):
   let extra = 0n;
   let limit: bigint | null = null; // SetComputeUnitLimit units
   let price: bigint | null = null; // SetComputeUnitPrice micro-lamports per unit
-  let others = 0n; // instructions that aren't ComputeBudget
   for (const ix of tx.instructions) {
     const program = programOf(tx, ix);
     if (!ALLOWED_PROGRAMS.has(program)) return fail(`The transaction calls an unexpected program (${program}).`);
@@ -105,7 +103,6 @@ export function checkCreateTx(tx: DecodedTx, want: ExpectedCreate):
       else return bad;
       continue;
     }
-    others++;
     if (program === SYSTEM_PROGRAM) {
       const view = new DataView(ix.data.buffer, ix.data.byteOffset, ix.data.byteLength);
       if (ix.data.length !== 12 || view.getUint32(0, true) !== 2) return fail("The transaction has an unexpected system instruction.");
@@ -127,8 +124,11 @@ export function checkCreateTx(tx: DecodedTx, want: ExpectedCreate):
     return fail("The transaction does another pump.fun action.");
   }
   if (!create) return fail("The transaction doesn't create a coin.");
-  const units = limit ?? DEFAULT_UNITS_PER_INSTRUCTION * others;
-  if (price !== null && (units * price + 999_999n) / 1_000_000n > MAX_PRIORITY_FEE_LAMPORTS) return fail("The transaction's network fee is too high.");
+  // buildLaunchTx appends instructions, so without a limit the fee couldn't be bounded: a price needs a limit.
+  if (price !== null) {
+    if (limit === null) return fail("The transaction sets a priority fee without a compute-unit limit.");
+    if ((limit * price + 999_999n) / 1_000_000n > MAX_PRIORITY_FEE_LAMPORTS) return fail("The transaction's network fee is too high.");
+  }
   if (create.name !== want.name || create.symbol !== want.symbol) return fail("The coin name or ticker doesn't match.");
   if (create.uri !== want.uri) return fail("The coin's metadata isn't SpookPad's.");
   if (create.creator !== want.creator) return fail("The creator fees would go to another wallet.");

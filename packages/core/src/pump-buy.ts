@@ -149,8 +149,9 @@ export interface LaunchParts {
 // of `p.mint` (checkCreateTx guarantees this; it is re-checked here because the buy is built from `p`, not from the create).
 export function buildLaunchTx(created: DecodedTx, tables: LookupTables, p: LaunchParts): Uint8Array {
   if (p.trader !== created.staticKeys[0]) throw new Error("The trader must pay for the launch transaction.");
-  const createIx = created.instructions.find((ix) => programOf(created, ix) === PUMP_PROGRAM && isCreateData(ix.data));
-  if (!createIx || decodeCreateArgs(createIx.data).version !== 2) throw new Error("The launch transaction must hold a pump.fun create_v2.");
+  const creates = created.instructions.filter((ix) => programOf(created, ix) === PUMP_PROGRAM && isCreateData(ix.data));
+  if (creates.length !== 1 || decodeCreateArgs(creates[0].data).version !== 2) throw new Error("The launch transaction must hold exactly one pump.fun create_v2.");
+  const createIx = creates[0];
   if (accountOf(created, createIx, 0) !== p.mint) throw new Error("The launch transaction creates a different mint.");
   const added: NewInstruction[] = [];
   if (p.devBuyLamports > 0n) {
