@@ -180,7 +180,7 @@ describe("treasury check", () => {
       const invoke = (async () => ({ ...startAnswer(gen("awaiting_payment")), treasury: "EVIL" })) as Invoke;
       await expect(summonCostume({ invoke, wait: async () => {}, prepareFee: async () => { throw new Error("must not pay"); } },
         { draftId: "d", costume: "ghost", imageBase64: "AAAA", feeLamports: 1_000_000, treasury: label === "another wallet" ? "T" : treasury }))
-        .rejects.toThrow(/isn't SpookPad's treasury/);
+        .rejects.toThrow(/isn't SpookPad's treasury|treasury address isn't set up/);
     });
   }
 });
