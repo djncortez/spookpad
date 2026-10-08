@@ -59,7 +59,9 @@ Supabase (free plan)
     admin           settings, prompts, pause switch, OpenRouter credit balance
   Storage bucket: art (public; originals/<uuid>.<ext> and costumes/<uuid>.<ext>, unguessable paths, so the coin
     page can show the original next to the costume)
-  Market caps: read by the browser straight from DEX Screener (no server job)
+  Market caps: the $NOOB live engine (token-launch-site skill), in the browser over Helius: on the coin page a
+    websocket on the bonding curve / PumpSwap trades; on the Graveyard one batched curve read every 15 s; DEX Screener
+    only as snapshot and fallback (no server job)
   Postgres + RLS: public views only
 Outside: Helius RPC · OpenRouter · PumpPortal trade-local · pump.fun IPFS (Pinata fallback) · DEX Screener
 ```
