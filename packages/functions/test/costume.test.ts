@@ -35,11 +35,11 @@ function feeTx(generationId: string, memo = feeMemo(generationId)): ParsedTransa
   };
 }
 
-function setup(o: { fee?: number; tx?: (id: string) => ParsedTransaction | null; ai?: Partial<CostumeAi>; credits?: number | null; start?: () => never; begin?: true } = {}) {
-  const gens = new Map<string, GenerationRow>();
+function setup(o: { fee?: number; tx?: (id: string) => ParsedTransaction | null; ai?: Partial<CostumeAi>; credits?: number | null; start?: () => never; begin?: true; expire?: () => Promise<string[]> } = {}) {
+  const gens = new Map<string, GenerationRow & { stale?: boolean }>();
   const used = new Set<string>();
   const art = new Map<string, Art>();
-  const log = { rpcCalls: [] as unknown[][], aiCalls: 0, alerts: [] as string[], prompts: [] as string[], removed: [] as string[], uploads: [] as string[] };
+  const log = { rpcCalls: [] as unknown[][], aiCalls: 0, alerts: [] as string[], prompts: [] as string[], removed: [] as string[], uploads: [] as string[], expireCalls: 0 };
   let n = 0;
   let paused = false;
   const deps: CostumeDeps = {
@@ -65,9 +65,11 @@ function setup(o: { fee?: number; tx?: (id: string) => ParsedTransaction | null;
       g.state = "paid";
       return { ...g };
     },
+    expireUnpaid: async () => { log.expireCalls++; return o.expire ? o.expire() : []; },
     beginAttempt: async (id) => {
       const g = gens.get(id)!;
-      if (g.state !== "paid") throw new StoreError("not_paid");
+      if (paused) throw new StoreError("paused");
+      if (g.state !== "paid" && !(g.state === "generating" && g.stale)) throw new StoreError("not_paid");
       if (o.begin) { g.attempts = 3; const f = { ...g, state: "failed" as const }; gens.set(id, f); return { ...f }; }
       g.state = "generating";
       g.attempts++;
@@ -104,7 +106,7 @@ function setup(o: { fee?: number; tx?: (id: string) => ParsedTransaction | null;
     return { status: res.status, body: res.status === 204 ? null : await res.json() };
   };
   const startOne = (costume = "ghost") => call({ action: "start", draft_id: DRAFT, costume, image: toBase64(PNG) });
-  return { deps, call, startOne, gens, art, log };
+  return { deps, call, startOne, gens, art, log, pause: (on: boolean) => { paused = on; } };
 }
 
 describe("costume: requests", () => {
@@ -215,13 +217,14 @@ describe("costume: pay", () => {
     expect(r).toEqual({ status: 409, body: { error: "This costume failed 3 times. The SpookPad team will refund your fee." } });
     expect(log.aiCalls).toBe(0);
   });
-  test("low credit is checked when the AI attempt fails too: one alert across two failures", async () => {
-    const { startOne, call, log } = setup({ credits: 1.5, ai: { edit: async () => { throw new Error("OpenRouter: HTTP 402"); } } });
+  test("low credit is checked when the AI attempt fails too: it pauses, alerts once, and the retry waits", async () => {
+    const { startOne, call, log, gens } = setup({ credits: 1.5, ai: { edit: async () => { throw new Error("OpenRouter: HTTP 402"); } } });
     await startOne();
     const first = await call({ action: "pay", generation_id: GEN1, signature: SIG });
     expect(first.body.generation).toMatchObject({ state: "paid", attempts: 1 });
     const second = await call({ action: "retry", generation_id: GEN1 });
-    expect(second.body.generation).toMatchObject({ state: "paid", attempts: 2 });
+    expect(second).toEqual({ status: 409, body: { error: "Costume summoning is paused right now. Try again soon." } });
+    expect(gens.get(GEN1)).toMatchObject({ state: "paid", attempts: 1 });
     expect(log.alerts).toHaveLength(1);
     expect(log.alerts[0]).toMatch(/OpenRouter credit is down to \$1\.50/);
   });
@@ -262,5 +265,52 @@ describe("costume: pay", () => {
     expect(r.status).toBe(400);
     expect(r.body.error).toMatch(/doesn't send/);
     expect(log.rpcCalls[0]).toEqual([SIG, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0, commitment: "confirmed" }]);
+  });
+});
+
+describe("costume: final-review fixes", () => {
+  test("start expires unpaid costumes first and removes their originals", async () => {
+    const { startOne, log } = setup({ expire: async () => ["originals/old-1.png", "originals/old-2.webp"] });
+    expect((await startOne()).status).toBe(200);
+    expect(log.expireCalls).toBe(1);
+    expect(log.removed).toEqual(["originals/old-1.png", "originals/old-2.webp"]);
+  });
+  test("a failing expiry never fails the start", async () => {
+    const { startOne, log } = setup({ expire: async () => { throw new Error("db down"); } });
+    expect((await startOne()).status).toBe(200);
+    expect(log.removed).toEqual([]);
+  });
+  test("a failing removal never fails the start", async () => {
+    const t = setup({ expire: async () => ["originals/old-1.png"] });
+    t.deps.removeArt = async () => { throw new Error("storage down"); };
+    expect((await t.startOne()).status).toBe(200);
+  });
+  test("paying for an expired costume answers that it expired", async () => {
+    const { startOne, call, gens } = setup();
+    await startOne();
+    gens.get(GEN1)!.state = "expired";
+    expect(await call({ action: "pay", generation_id: GEN1, signature: SIG })).toEqual({
+      status: 409, body: { error: "This costume wasn't paid for within an hour, so it expired. Summon it again." },
+    });
+  });
+  test("while summoning is paused, a payment is kept but no AI attempt starts; the retry works after unpausing", async () => {
+    const { startOne, call, log, gens, pause } = setup();
+    await startOne();
+    pause(true);
+    expect(await call({ action: "pay", generation_id: GEN1, signature: SIG })).toEqual({
+      status: 409, body: { error: "Costume summoning is paused right now. Try again soon." },
+    });
+    expect(gens.get(GEN1)!.state).toBe("paid");
+    expect(await call({ action: "retry", generation_id: GEN1 })).toMatchObject({ status: 409 });
+    expect(log.aiCalls).toBe(0);
+    pause(false);
+    expect((await call({ action: "retry", generation_id: GEN1 })).body.generation).toMatchObject({ state: "ready", attempts: 1 });
+  });
+  test("a stuck 'generating' costume can be retried (the takeover happens in begin_attempt)", async () => {
+    const { startOne, call, gens } = setup();
+    await startOne();
+    Object.assign(gens.get(GEN1)!, { state: "generating", attempts: 1, stale: true });
+    const r = await call({ action: "retry", generation_id: GEN1 });
+    expect(r.body.generation).toMatchObject({ state: "ready", attempts: 2 });
   });
 });

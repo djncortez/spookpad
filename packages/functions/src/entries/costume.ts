@@ -21,6 +21,7 @@ export function serve(env: Env) {
     startGeneration: (g) => store.startGeneration(db, g),
     loadGeneration: (id) => store.loadGeneration(db, id),
     claimPayment: (signature, id, wallet, lamports) => store.claimPayment(db, signature, id, wallet, lamports),
+    expireUnpaid: () => store.expireUnpaid(db),
     beginAttempt: (id, wallet) => store.beginAttempt(db, id, wallet),
     finishAttempt: (id, path, error) => store.finishAttempt(db, id, path, error),
     loadCostumePrompt: (slug) => store.loadCostumePrompt(db, slug),

@@ -6,7 +6,7 @@ import { sniffImageType, type Art } from "@spookpad/core/image-type";
 import { rowToSettings, type Settings } from "@spookpad/core/settings";
 import { STORE_CODES, StoreError } from "./errors";
 
-export type GenerationState = "awaiting_payment" | "paid" | "generating" | "ready" | "failed";
+export type GenerationState = "awaiting_payment" | "paid" | "generating" | "ready" | "failed" | "expired";
 export interface GenerationRow {
   id: string; wallet: string; draft_id: string; costume: string; original_path: string; result_path: string | null;
   state: GenerationState; fee_lamports: number; attempts: number; error: string | null; metadata_key: string | null;
@@ -74,6 +74,8 @@ export async function loadGeneration(db: SupabaseClient, id: string): Promise<Ge
 
 export const claimPayment = async (db: SupabaseClient, signature: string, generationId: string, wallet: string, lamports: number) =>
   toGeneration(await call(db, "claim_payment", { p_signature: signature, p_generation: generationId, p_wallet: wallet, p_lamports: lamports }));
+
+export const expireUnpaid = async (db: SupabaseClient): Promise<string[]> => call<string[]>(db, "expire_unpaid", {});
 
 export const beginAttempt = async (db: SupabaseClient, id: string, wallet: string) =>
   toGeneration(await call(db, "begin_attempt", { p_generation: id, p_wallet: wallet }));
@@ -146,6 +148,7 @@ export async function adminOverview(db: SupabaseClient): Promise<Overview> {
 }
 
 export async function listFailed(db: SupabaseClient): Promise<FailedGeneration[]> {
+  await call(db, "fail_stale_attempts", {}); // a third attempt that died and was never retried is refundable too
   const { data, error } = await db.from("generations")
     .select("id, wallet, costume, fee_lamports, error, created_at, refunded_at")
     .eq("state", "failed").order("created_at", { ascending: false }).limit(200);

@@ -6,7 +6,9 @@
 //      -> 202 { status: "waiting" }   the payment isn't on Solana yet: ask again in 2 s
 //      -> 200 { generation }          paid and summoned ("ready"), or the AI failed ("paid" + error: the retry is free;
 //                                     "failed" after 3 attempts, refunded by the admin)
-//   { action: "retry", generation_id } -> 200 { generation }
+//   { action: "retry", generation_id } -> 200 { generation }   also takes over an attempt stuck "generating" for 3 minutes
+// While summoning is paused (admin or low AI credit) pay and retry answer 409 "paused" and start no AI attempt; a paid
+// costume stays paid, so the free retry works once summoning is back.
 import { buildPrompt, COSTUME_SLUG } from "@spookpad/core/costumes";
 import { fromBase64 } from "@spookpad/core/encoding";
 import { checkFeePayment, feeMemo, type ParsedTransaction } from "@spookpad/core/fee-check";
@@ -24,6 +26,7 @@ export interface CostumeDeps {
   startGeneration(g: { id: string; wallet: string; draftId: string; costume: string; originalPath: string }): Promise<GenerationRow>;
   loadGeneration(id: string): Promise<GenerationRow | null>;
   claimPayment(signature: string, generationId: string, wallet: string, lamports: number): Promise<GenerationRow>;
+  expireUnpaid(): Promise<string[]>; // marks costumes unpaid for an hour expired; returns their originals' paths
   beginAttempt(id: string, wallet: string): Promise<GenerationRow>;
   finishAttempt(id: string, resultPath: string | null, error: string | null): Promise<GenerationRow>;
   loadCostumePrompt(slug: string): Promise<string | null>;
@@ -95,6 +98,19 @@ async function summon(d: CostumeDeps, g: GenerationRow): Promise<GenerationRow> 
   return done;
 }
 
+// Best effort, never fails the request: expire costumes left unpaid for an hour and delete their originals (each start
+// uploads up to 3 MB to the public bucket before any payment).
+async function expireUnpaid(d: CostumeDeps): Promise<void> {
+  let paths: string[];
+  try {
+    paths = await d.expireUnpaid();
+  } catch (e) {
+    console.error("costume: expiring unpaid costumes failed", e);
+    return;
+  }
+  await Promise.all(paths.map((p) => d.removeArt(p).catch((e) => console.error("costume: removing an expired original failed", p, e))));
+}
+
 async function start(d: CostumeDeps, wallet: string, body: Record<string, unknown>, cors: Record<string, string>): Promise<Response> {
   const fail = (status: number, error: string) => json({ error }, status, cors);
   const draftId = typeof body.draft_id === "string" && UUID.test(body.draft_id) ? body.draft_id : null;
@@ -107,6 +123,7 @@ async function start(d: CostumeDeps, wallet: string, body: Record<string, unknow
   if (!type) return fail(400, "Pick a PNG, JPG or WebP image.");
   if (bytes.length > MAX_ORIGINAL_BYTES) return fail(400, "That image is too big. Pick one under 3 MB.");
 
+  await expireUnpaid(d);
   const id = d.newId();
   const path = `originals/${id}.${EXT[type]}`;
   await d.uploadArt(path, { bytes, type });
@@ -128,6 +145,7 @@ async function pay(d: CostumeDeps, wallet: string, body: Record<string, unknown>
   if (!id || !signature) return fail(400, "That isn't a Solana payment.");
   const g = await d.loadGeneration(id);
   if (!g || g.wallet !== wallet) return fail(404, "Costume not found.");
+  if (g.state === "expired") return fail(409, "This costume wasn't paid for within an hour, so it expired. Summon it again.");
   if (g.state !== "awaiting_payment") return json({ generation: publicGeneration(g) }, 200, cors);
 
   let tx: ParsedTransaction | null;

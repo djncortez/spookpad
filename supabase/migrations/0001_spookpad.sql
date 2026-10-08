@@ -41,7 +41,8 @@ insert into costumes (slug, label, emoji, prompt, sort) values
   ('skeleton', 'Skeleton', '💀', 'a black skeleton costume suit with white bones printed on it', 6),
   ('devil', 'Devil', '😈', 'small red devil horns, a red cape and a pointed tail', 7);
 
-create type generation_state as enum ('awaiting_payment', 'paid', 'generating', 'ready', 'failed');
+-- expired: never paid within an hour (expire_unpaid); its original image is removed from storage
+create type generation_state as enum ('awaiting_payment', 'paid', 'generating', 'ready', 'failed', 'expired');
 create table generations (
   id uuid primary key,
   wallet text not null references users (wallet),
@@ -60,6 +61,7 @@ create table generations (
   updated_at timestamptz not null default now()
 );
 create index generations_wallet_created_idx on generations (wallet, created_at desc);
+create index generations_awaiting_idx on generations (created_at) where state = 'awaiting_payment';
 
 create table costume_payments (
   signature text primary key check (signature ~ '^[1-9A-HJ-NP-Za-km-z]{64,88}$'),
@@ -171,6 +173,8 @@ declare g generations;
 begin
   select * into g from generations where id = p_generation for update;
   if not found or g.wallet <> p_wallet then raise exception 'not_found'; end if;
+  -- paused (by the admin or for low AI credit): no AI attempt starts; a paid costume stays paid for a later retry
+  if (select generations_paused from settings) then raise exception 'paused'; end if;
   if not (g.state = 'paid' or (g.state = 'generating' and g.updated_at < now() - interval '3 minutes')) then
     raise exception 'not_paid';
   end if;
@@ -204,6 +208,30 @@ begin
   returning * into g;
   if not found then raise exception 'not_generating'; end if;
   return g;
+end $$;
+
+-- Unpaid costumes are expired after an hour so their originals (uploaded to the public bucket before payment) can be
+-- removed: the caller deletes the returned original_path files. An hour is safe: the browser builds the fee transaction
+-- right after start, and its blockhash expires in about 90 seconds, so no payment can land an hour later (and
+-- claim_payment refuses an expired row with not_awaiting anyway). At most 50 rows per call.
+create or replace function public.expire_unpaid() returns setof text
+language sql security definer set search_path = public as $$
+  update generations set state = 'expired', updated_at = now()
+  where id in (select id from generations where state = 'awaiting_payment' and created_at < now() - interval '1 hour'
+               order by created_at limit 50 for update skip locked)
+  returning original_path
+$$;
+
+-- A third attempt whose function died (no update for 3 minutes) and that nobody retried: mark it failed so the admin
+-- sees it as refundable (begin_attempt does the same when the trader retries it). Returns how many rows changed.
+create or replace function public.fail_stale_attempts() returns int
+language plpgsql security definer set search_path = public as $$
+declare n int;
+begin
+  update generations set state = 'failed', error = coalesce(error, 'attempt_timeout'), updated_at = now()
+  where state = 'generating' and attempts >= 3 and updated_at < now() - interval '3 minutes';
+  get diagnostics n = row_count;
+  return n;
 end $$;
 
 -- ===== launches =====
@@ -308,6 +336,7 @@ end $$;
 create or replace function public.admin_mark_refunded(p_generation uuid, p_admin text) returns void
 language plpgsql security definer set search_path = public as $$
 begin
+  perform fail_stale_attempts();
   update generations set refunded_at = now(), updated_at = now()
   where id = p_generation and state = 'failed' and refunded_at is null;
   if not found then raise exception 'not_refundable'; end if;
@@ -315,8 +344,10 @@ begin
 end $$;
 
 create or replace function public.admin_overview() returns jsonb
-language sql security definer set search_path = public as $$
-  select jsonb_build_object(
+language plpgsql security definer set search_path = public as $$
+begin
+  perform fail_stale_attempts(); -- stale third attempts count as failed
+  return jsonb_build_object(
     'generations_24h', (select count(*) from generations where created_at > now() - interval '24 hours'),
     'ready_24h', (select count(*) from generations where state = 'ready' and updated_at > now() - interval '24 hours'),
     'launches_24h', (select count(*) from launches where state = 'live' and launched_at > now() - interval '24 hours'),
@@ -324,8 +355,8 @@ language sql security definer set search_path = public as $$
     'failed_unrefunded', (select count(*) from generations where state = 'failed' and refunded_at is null),
     'costume_fees_lamports', (select coalesce(sum(lamports), 0) from costume_payments),
     'launch_fees_lamports', (select coalesce(sum(launch_fee_lamports), 0) from launches where state = 'live')
-  )
-$$;
+  );
+end $$;
 
 -- ===== views =====
 -- Views run with their owner's rights so they can read the locked tables; they select public columns only.
@@ -345,6 +376,7 @@ create view v_graveyard as
 
 create view v_my_generations as
   select g.id, g.draft_id, g.costume, g.state, g.original_path, g.result_path, g.error, g.attempts, g.fee_lamports, g.created_at,
+         g.updated_at,
          exists (select 1 from launches l where l.generation_id = g.id and l.state = 'live') as launched
   from generations g join users u on u.wallet = g.wallet
   where u.id = auth.uid();
@@ -369,6 +401,8 @@ grant execute on function
   public.claim_payment(text, uuid, text, bigint),
   public.begin_attempt(uuid, text),
   public.finish_attempt(uuid, text, text),
+  public.expire_unpaid(),
+  public.fail_stale_attempts(),
   public.begin_launch(text, text, uuid, text, text, text, text, text, bigint, text, bigint),
   public.confirm_launch(text, text, text),
   public.pause_for_low_credit(),
