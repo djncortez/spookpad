@@ -6,6 +6,7 @@ import { MAX_COSTUME_BYTES, sniffImageType, type Art } from "@spookpad/core/imag
 export const DEFAULT_MODEL = "google/gemini-nano-banana-2.1";
 const API = "https://openrouter.ai/api/v1";
 const TIMEOUT_MS = 90_000;
+const CREDITS_TIMEOUT_MS = 10_000;
 
 // The model answered without an image (usually a refusal). Its message is shown to the trader.
 export class AiRefused extends Error {
@@ -65,7 +66,7 @@ export function openRouter(o: { apiKey: string; model?: string; siteUrl?: string
     },
     async credits() {
       try {
-        const res = await fetchFn(`${API}/credits`, { headers });
+        const res = await fetchFn(`${API}/credits`, { headers, signal: AbortSignal.timeout(CREDITS_TIMEOUT_MS) });
         if (!res.ok) return null;
         const d = ((await res.json()) as { data?: { total_credits?: unknown; total_usage?: unknown } }).data;
         const total = Number(d?.total_credits);

@@ -215,6 +215,45 @@ describe("costume: pay", () => {
     expect(r).toEqual({ status: 409, body: { error: "This costume failed 3 times. The SpookPad team will refund your fee." } });
     expect(log.aiCalls).toBe(0);
   });
+  test("low credit is checked when the AI attempt fails too: one alert across two failures", async () => {
+    const { startOne, call, log } = setup({ credits: 1.5, ai: { edit: async () => { throw new Error("OpenRouter: HTTP 402"); } } });
+    await startOne();
+    const first = await call({ action: "pay", generation_id: GEN1, signature: SIG });
+    expect(first.body.generation).toMatchObject({ state: "paid", attempts: 1 });
+    const second = await call({ action: "retry", generation_id: GEN1 });
+    expect(second.body.generation).toMatchObject({ state: "paid", attempts: 2 });
+    expect(log.alerts).toHaveLength(1);
+    expect(log.alerts[0]).toMatch(/OpenRouter credit is down to \$1\.50/);
+  });
+  test("a credit check that throws never turns a failed attempt into an error", async () => {
+    const { startOne, call } = setup({ ai: { edit: async () => { throw new Error("boom"); }, credits: async () => { throw new Error("offline"); } } });
+    await startOne();
+    expect((await call({ action: "pay", generation_id: GEN1, signature: SIG })).status).toBe(200);
+  });
+  test("retrying a generation already failed answers the refund message, no AI call", async () => {
+    const { startOne, call, log, gens } = setup();
+    await startOne();
+    gens.get(GEN1)!.state = "failed";
+    expect(await call({ action: "retry", generation_id: GEN1 })).toEqual({
+      status: 409, body: { error: "This costume failed 3 times. The SpookPad team will refund your fee." },
+    });
+    expect(log.aiCalls).toBe(0);
+  });
+  test("store refusals map to their answers", async () => {
+    const limited = setup({ start: () => { throw new StoreError("rate_limited"); } });
+    expect((await limited.startOne()).status).toBe(429);
+    const bad = setup({ start: () => { throw new StoreError("bad_costume"); } });
+    expect((await bad.startOne()).status).toBe(400);
+    const used = setup();
+    await used.startOne();
+    used.deps.claimPayment = async () => { throw new StoreError("payment_used"); };
+    expect((await used.call({ action: "pay", generation_id: GEN1, signature: SIG })).status).toBe(409);
+  });
+  test("another wallet retrying gets 404", async () => {
+    const { startOne, call } = setup();
+    await startOne();
+    expect(await call({ action: "retry", generation_id: GEN1 }, "other")).toEqual({ status: 404, body: { error: "Costume not found." } });
+  });
   test("the payment is checked against the fee frozen at start, and read at confirmed commitment", async () => {
     const { startOne, call, log, gens } = setup();
     await startOne();

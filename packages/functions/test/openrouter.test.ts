@@ -59,4 +59,9 @@ describe("openRouter.credits", () => {
     expect(await openRouter({ apiKey: "k", fetchFn: async () => new Response("x", { status: 500 }) }).credits()).toBeNull();
     expect(await openRouter({ apiKey: "k", fetchFn: async () => { throw new Error("offline"); } }).credits()).toBeNull();
   });
+  test("the credits call carries a timeout signal", async () => {
+    let signal: AbortSignal | null | undefined;
+    await openRouter({ apiKey: "k", fetchFn: async (_u, init) => { signal = init?.signal; return ok({ data: { total_credits: 1, total_usage: 0 } }); } }).credits();
+    expect(signal).toBeInstanceOf(AbortSignal);
+  });
 });

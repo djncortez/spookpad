@@ -87,7 +87,9 @@ async function summon(d: CostumeDeps, g: GenerationRow): Promise<GenerationRow> 
     done = await d.finishAttempt(running.id, path, null);
   } catch (e) {
     console.error("costume: attempt failed", e);
-    return d.finishAttempt(running.id, null, e instanceof AiRefused ? e.message : FIZZLED);
+    const failed = await d.finishAttempt(running.id, null, e instanceof AiRefused ? e.message : FIZZLED);
+    await checkCredit(d); // an empty OpenRouter account fails every attempt: this is where the pause has to fire
+    return failed;
   }
   await checkCredit(d);
   return done;
@@ -149,6 +151,7 @@ async function retry(d: CostumeDeps, wallet: string, body: Record<string, unknow
   const g = id ? await d.loadGeneration(id) : null;
   if (!g || g.wallet !== wallet) return json({ error: "Costume not found." }, 404, cors);
   if (g.state === "ready") return json({ generation: publicGeneration(g) }, 200, cors);
+  if (g.state === "failed") return json({ error: STORE_ANSWERS.no_attempts[1] }, STORE_ANSWERS.no_attempts[0], cors);
   return json({ generation: publicGeneration(await summon(d, g)) }, 200, cors);
 }
 
