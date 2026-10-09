@@ -46,7 +46,7 @@ export function Graveyard() {
   const emoji = (slug: string) => costumes.find((c) => c.slug === slug)?.emoji;
 
   return (
-    <section className="grid gap-4">
+    <section id="graveyard" className="grid scroll-mt-24 gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="font-display text-4xl">The Graveyard</h2>
         <div role="tablist" aria-label="Sort" className="flex gap-2">
