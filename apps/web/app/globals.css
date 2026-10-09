@@ -28,6 +28,10 @@ body {
 .btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 0 24px #ff7a1a66; }
 .btn:disabled { opacity: .55; cursor: not-allowed; }
 .btn:focus-visible { outline: 2px solid var(--color-ghost); outline-offset: 3px; }
+/* phones: a compact wallet button so the header stays on one row */
+@media (max-width: 639px) {
+  .header-nav .btn { padding: .45rem .8rem; font-size: .8125rem; }
+}
 .btn-ghost { background: transparent; color: var(--color-ghost); border: 2px solid var(--color-line); }
 .card { background: color-mix(in srgb, var(--color-night-2) 88%, transparent); border: 1px solid var(--color-line); border-radius: 1.25rem; }
 .input {

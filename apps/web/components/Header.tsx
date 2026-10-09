@@ -28,14 +28,14 @@ export function Header() {
         scrolled ? "border-line bg-night/70 backdrop-blur-md" : "border-transparent bg-transparent"
       }`}
     >
-      <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-3">
+      <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-2 px-4 py-3 sm:gap-3">
         <Link
           href="/"
-          className={`origin-left font-display text-2xl tracking-wide sm:text-3xl text-pumpkin transition-transform duration-300 motion-reduce:transition-none ${scrolled ? "scale-[0.85]" : ""}`}
+          className={`origin-left font-display text-xl tracking-wide sm:text-3xl text-pumpkin transition-transform duration-300 motion-reduce:transition-none ${scrolled ? "scale-[0.85]" : ""}`}
         >
           Spook<span className="text-ghost">Pad</span> <span aria-hidden className="hidden sm:inline">👻</span>
         </Link>
-        <nav className="flex items-center gap-3 text-sm sm:gap-4 sm:text-base">
+        <nav className="header-nav flex items-center gap-2.5 text-sm sm:gap-4 sm:text-base">
           <Link href="/#graveyard" className="text-muted hover:text-ghost">Graveyard</Link>
           <Link href="/launch/" className="text-muted hover:text-ghost">Launch</Link>
           <WalletButton />
