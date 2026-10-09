@@ -15,11 +15,12 @@
     "build": "node --env-file-if-exists=.env scripts/build-admin.mjs && npm run build -w apps/web"
   },
   "devDependencies": {
-    "@types/node": "^22",
     "@solana/web3.js": "^1.99.0",
+    "@types/node": "^22",
     "embedded-postgres": "^17.10.0-beta.17",
     "esbuild": "^0.28.2",
     "postgres": "^3.4.9",
+    "sharp": "^0.35.5",
     "typescript": "^5",
     "vitest": "^5.0.2"
   }
