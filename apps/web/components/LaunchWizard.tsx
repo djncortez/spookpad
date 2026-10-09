@@ -21,7 +21,9 @@ import { prepareImage, type PreparedImage } from "@/lib/image";
 import { confirmLaunch, launchCoin, type LaunchStep } from "@/lib/launch-coin";
 import { fetchCostumes, fetchDraftGenerations, fetchSettings, type Costume, type PublicSettings } from "@/lib/public-data";
 import { finishPayment, retryCostume, summonCostume, type Generation, type SummonStep } from "@/lib/summon";
+import { Cauldron } from "./Cauldron";
 import { CostumePicker } from "./CostumePicker";
+import { Reveal } from "./fx/Reveal";
 import { GenerationCard } from "./GenerationCard";
 import { WalletButton } from "./WalletButton";
 
@@ -294,6 +296,7 @@ export function LaunchWizard() {
     <div className="grid gap-6">
       <h1 className="font-display text-5xl text-pumpkin">Launch a coin</h1>
 
+      <Reveal>
       <section className="card grid gap-4 p-5">
         <h2 className="text-xl font-bold">1. Your coin</h2>
         <div className="grid gap-4 sm:grid-cols-[200px_1fr]">
@@ -313,7 +316,9 @@ export function LaunchWizard() {
         </div>
         <p className="text-xs text-muted">No real people, real brands or trademarks, and nothing targeting private individuals.</p>
       </section>
+      </Reveal>
 
+      <Reveal delay={0.08}>
       <section className="card grid gap-4 p-5">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-xl font-bold">2. Pick a costume</h2>
@@ -340,7 +345,9 @@ export function LaunchWizard() {
           </div>
         )}
       </section>
+      </Reveal>
 
+      <Reveal delay={0.16}>
       <section className="card grid gap-4 p-5">
         <h2 className="text-xl font-bold">3. Launch on pump.fun</h2>
         <label className="label max-w-xs">
@@ -362,9 +369,11 @@ export function LaunchWizard() {
           <button className="btn justify-self-start text-lg" onClick={launch} disabled={busy || !selected || !settings || !!settings.launches_paused || !publicEnv.treasury}>🎃 Launch coin</button>
         )}
       </section>
+      </Reveal>
 
       {(status || error) && (
-        <div role="status" aria-live="polite" className={`card sticky bottom-4 p-4 ${error ? "border-blood text-blood" : ""}`}>
+        <div role="status" aria-live="polite" className={`card sticky bottom-4 flex items-center gap-3 p-4 ${error ? "border-blood text-blood" : ""}`}>
+          {!error && status === SUMMON_TEXT.brewing && <Cauldron compact />}
           {error ?? status}
         </div>
       )}
