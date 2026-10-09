@@ -25,3 +25,15 @@ export function tickerLine(coins: Pick<GraveCoin, "name" | "ticker" | "launched_
   const newest = [...coins].sort((a, b) => Date.parse(b.launched_at) - Date.parse(a.launched_at)).slice(0, max);
   return `${newest.map((c) => `${c.name} $${c.ticker}`).join(" ✦ ")} ✦`;
 }
+
+// Repeats the ticker line until it is at least minChars long, so one or two coins still fill a wide screen.
+export function fillTicker(line: string, minChars = 160): string {
+  let out = line;
+  while (out.length < minChars) out += ` ${line}`;
+  return out;
+}
+
+// The ticker's text for screen readers: the entries joined with commas.
+export function spokenTicker(line: string): string {
+  return line.split("✦").map((s) => s.trim()).filter(Boolean).join(", ");
+}

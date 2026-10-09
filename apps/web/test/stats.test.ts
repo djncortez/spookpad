@@ -1,5 +1,13 @@
 import { expect, test } from "vitest";
-import { compactCount, formatCount, tickerLine } from "../lib/stats";
+import { compactCount, fillTicker, formatCount, spokenTicker, tickerLine } from "../lib/stats";
+
+test("a short ticker line is repeated to fill the screen; screen readers get commas", () => {
+  expect(fillTicker("A $A ✦").length).toBeGreaterThanOrEqual(160);
+  expect(fillTicker("A $A ✦", 12)).toBe("A $A ✦ A $A ✦");
+  const long = "x".repeat(200);
+  expect(fillTicker(long)).toBe(long);
+  expect(spokenTicker("New $NEW ✦ Old $OLD ✦")).toBe("New $NEW, Old $OLD");
+});
 
 test("counters count up to whole numbers, then K and M", () => {
   expect(compactCount(0)).toEqual({ to: 0, suffix: "" });
