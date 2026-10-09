@@ -19,9 +19,10 @@ export function CostumeMorph({ animate, active }: { animate: boolean; active: bo
 
   const frame = heroFrame(step, SHOWCASE.length);
   const shown = SHOWCASE[animate ? heroIndex(frame.current) : STILL_INDEX];
-  const art = (i: number, first = false) => (
+  // `index` is a SHOWCASE index: the animated slots map through heroIndex, the still uses STILL_INDEX as-is.
+  const art = (index: number, first = false) => (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={SHOWCASE[heroIndex(i)].src} alt="" width={768} height={768} fetchPriority={first ? "high" : "auto"} className="h-full w-full object-cover" />
+    <img src={SHOWCASE[index].src} alt="" width={768} height={768} fetchPriority={first ? "high" : "auto"} className="h-full w-full object-cover" />
   );
 
   return (
@@ -30,8 +31,8 @@ export function CostumeMorph({ animate, active }: { animate: boolean; active: bo
         {animate ? (
           <PixelTransition
             active={frame.showB}
-            firstContent={art(frame.slotA, step === 0)}
-            secondContent={art(frame.slotB)}
+            firstContent={art(heroIndex(frame.slotA), step === 0)}
+            secondContent={art(heroIndex(frame.slotB))}
             gridSize={12}
             pixelColor="#ff7a1a"
             animationStepDuration={0.45}
