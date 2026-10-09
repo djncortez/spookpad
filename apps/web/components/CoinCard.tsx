@@ -45,13 +45,13 @@ export function CoinCard({ coin, cap, emoji, touch = false, still = false }: {
       <SpotlightCard spotlightColor="#ff7a1a" proximity={0} intensity={0.22} borderGlow={0.9} className="h-full rounded-[1.25rem]">
         {touch ? (
           <>
-            <button type="button" aria-pressed={peek} aria-label={`Peek under ${coin.name}'s costume`} onClick={() => setPeek((p) => !p)} className="block w-full">
+            <button type="button" aria-pressed={peek} aria-label={`Peek under ${coin.name}'s costume`} onClick={() => setPeek((p) => !p)} className="block w-full focus-visible:outline-2 focus-visible:-outline-offset-4 focus-visible:outline-ghost">
               {art}
             </button>
-            <Link href={href} className="block">{info}</Link>
+            <Link href={href} className="block focus-visible:outline-2 focus-visible:-outline-offset-4 focus-visible:outline-ghost">{info}</Link>
           </>
         ) : (
-          <Link href={href} className="block" onMouseEnter={() => setPeek(true)} onMouseLeave={() => setPeek(false)} onFocus={() => setPeek(true)} onBlur={() => setPeek(false)}>
+          <Link href={href} className="block focus-visible:outline-2 focus-visible:-outline-offset-4 focus-visible:outline-ghost" onMouseEnter={() => setPeek(true)} onMouseLeave={() => setPeek(false)} onFocus={() => setPeek(true)} onBlur={() => setPeek(false)}>
             {art}
             {info}
           </Link>

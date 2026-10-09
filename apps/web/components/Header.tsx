@@ -24,19 +24,19 @@ export function Header() {
   return (
     <header
       ref={ref}
-      className={`sticky top-0 z-40 w-full border-b transition-colors duration-300 ${
+      className={`sticky top-0 z-40 w-full border-b transition-colors duration-300 motion-reduce:transition-none ${
         scrolled ? "border-line bg-night/70 backdrop-blur-md" : "border-transparent bg-transparent"
       }`}
     >
       <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-3">
         <Link
           href="/"
-          className={`origin-left font-display text-2xl tracking-wide sm:text-3xl text-pumpkin transition-transform duration-300 ${scrolled ? "scale-[0.85]" : ""}`}
+          className={`origin-left font-display text-2xl tracking-wide sm:text-3xl text-pumpkin transition-transform duration-300 motion-reduce:transition-none ${scrolled ? "scale-[0.85]" : ""}`}
         >
           Spook<span className="text-ghost">Pad</span> <span aria-hidden className="hidden sm:inline">👻</span>
         </Link>
-        <nav className="flex items-center gap-3 sm:gap-4">
-          <Link href="/#graveyard" className="hidden text-muted hover:text-ghost sm:inline">Graveyard</Link>
+        <nav className="flex items-center gap-3 text-sm sm:gap-4 sm:text-base">
+          <Link href="/#graveyard" className="text-muted hover:text-ghost">Graveyard</Link>
           <Link href="/launch/" className="text-muted hover:text-ghost">Launch</Link>
           <WalletButton />
         </nav>

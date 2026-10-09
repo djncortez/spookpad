@@ -1,11 +1,11 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import CountUp from "@/components/bits/CountUp";
 import ScrollVelocity from "@/components/bits/ScrollVelocity";
 import { fetchGraveyard } from "@/lib/graveyard";
 import { fetchCostumes, fetchStats, type Stats } from "@/lib/public-data";
 import { compactCount, fillTicker, formatCount, spokenTicker, tickerLine } from "@/lib/stats";
-import { useFx } from "@/lib/use-fx";
+import { useFx, useVisibility } from "@/lib/use-fx";
 
 // Counters (coins launched, costumes summoned, costumes available) and a ticker of the newest coins.
 export function StatsTicker() {
@@ -66,12 +66,14 @@ function Counter({ value, animate, ready }: { value: number | null; animate: boo
 // so nothing visible shifts).
 const ROW = "font-display text-3xl leading-[1.2] text-ghost/90 sm:text-5xl";
 function Ticker({ line, still }: { line: string | undefined; still: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const { active } = useVisibility(ref); // the animated scroller only runs while the band is on screen
   return (
-    <div className="full-bleed flex h-[62px] items-center overflow-hidden border-y border-line bg-night-2/60 sm:h-[86px]">
+    <div ref={ref} className="full-bleed flex h-[62px] items-center overflow-hidden border-y border-line bg-night-2/60 sm:h-[86px]">
       {line !== undefined && (
         <>
           <p className="sr-only">Newest coins: {spokenTicker(line)}</p>
-          {still ? (
+          {still || !active ? (
             <p aria-hidden className={`w-full truncate px-4 text-center ${ROW}`}>{line}</p>
           ) : (
             <div aria-hidden className="w-full">

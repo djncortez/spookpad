@@ -48,6 +48,13 @@ body { overflow-x: clip; }
   .split-parent { opacity: 0; animation: split-failsafe 0s linear 2.5s forwards; }
 }
 @keyframes split-failsafe { to { opacity: 1; } }
+/* Reveal: never leave content invisible. gsap adds an inline style the moment it runs, so the failsafe only applies
+   to a reveal that gsap has not touched (no style attribute) 2.5 s after it rendered, and stops once gsap takes over. */
+@keyframes reveal-failsafe { to { visibility: visible; opacity: 1; transform: none; } }
+.reveal:not([style]) { animation: reveal-failsafe 0s linear 2.5s forwards; }
+@media (scripting: none) {
+  .reveal { visibility: visible !important; opacity: 1 !important; transform: none !important; }
+}
 
 /* a full-width band inside the centered main column */
 .full-bleed { width: 100vw; margin-left: calc(50% - 50vw); }
