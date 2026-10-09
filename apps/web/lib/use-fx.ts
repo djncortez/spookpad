@@ -67,11 +67,11 @@ export function useVisibility(ref: RefObject<Element | null>, rootMargin = "200p
   return { active: inView && !hidden, seen };
 }
 
-export function useFx(): FxPlan {
+export function useFx(): FxPlan & { ready: boolean } {
   const reducedMotion = useReducedMotion();
   const pointerFine = usePointerFine();
   const wide = useWide();
   const webgl = useWebGL();
   const ready = useIdleReady();
-  return fxPlan({ reducedMotion, pointerFine, wide, webgl, ready });
+  return { ...fxPlan({ reducedMotion, pointerFine, wide, webgl, ready }), ready };
 }

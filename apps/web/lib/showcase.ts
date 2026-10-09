@@ -17,6 +17,9 @@ export const STILL_INDEX = 1;  // reduced motion: the hero shows the ghost costu
 // The gallery's 7 costumes (no plain). A module constant, so the WebGL gallery is never rebuilt by a re-render.
 export const GALLERY_ITEMS: { image: string; text: string }[] = SHOWCASE.slice(1).map((c) => ({ image: c.src, text: `${c.emoji} ${c.label}` }));
 
+// The animated cycle starts on the costume the still image shows, so motion starting changes nothing on screen.
+export const heroIndex = (i: number, count: number = SHOWCASE.length): number => (i + STILL_INDEX) % count;
+
 export interface HeroFrame { current: number; slotA: number; slotB: number; showB: boolean }
 
 // The hero swaps between two slots with a pixel dissolve: on step s the slot being revealed shows costume s and the

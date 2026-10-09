@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { CYCLE_MS, GALLERY_ITEMS, heroFrame, SHOWCASE, STILL_INDEX } from "../lib/showcase";
+import { CYCLE_MS, GALLERY_ITEMS, heroFrame, heroIndex, SHOWCASE, STILL_INDEX } from "../lib/showcase";
 
 test("the hero cycles plain, then the seven costumes, every 3 s", () => {
   expect(SHOWCASE.map((c) => c.slug)).toEqual(["plain", "ghost", "witch", "vampire", "pumpkin", "mummy", "skeleton", "devil"]);
@@ -32,4 +32,11 @@ describe("heroFrame", () => {
       expect(now[leaving]).toBe(before[leaving]);
     }
   });
+});
+
+test("the animated cycle starts on the still costume (ghost), then witch, and wraps through plain", () => {
+  expect(SHOWCASE[heroIndex(0)].slug).toBe("ghost");
+  expect(SHOWCASE[heroIndex(1)].slug).toBe("witch");
+  expect(SHOWCASE[heroIndex(7)].slug).toBe("plain");
+  expect(heroIndex(0)).toBe(STILL_INDEX);
 });

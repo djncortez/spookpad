@@ -1,10 +1,10 @@
 "use client";
 import { useEffect, useState } from "react";
 import PixelTransition from "@/components/bits/PixelTransition";
-import { CYCLE_MS, heroFrame, SHOWCASE, STILL_INDEX } from "@/lib/showcase";
+import { CYCLE_MS, heroFrame, heroIndex, SHOWCASE, STILL_INDEX } from "@/lib/showcase";
 
 // The mascot trying on every costume, one every 3 s, with a pixel dissolve (fixed-size box: no layout shift).
-// Still (reduced motion): the ghost costume. Paused while off screen or while the tab is hidden.
+// Starts on the ghost costume (same as the still), then witch, ... devil, plain, ghost. Still (reduced motion): the ghost costume. Paused while off screen or while the tab is hidden.
 export function CostumeMorph({ animate, active }: { animate: boolean; active: boolean }) {
   const [step, setStep] = useState(0);
   useEffect(() => {
@@ -18,10 +18,10 @@ export function CostumeMorph({ animate, active }: { animate: boolean; active: bo
   }, [animate]);
 
   const frame = heroFrame(step, SHOWCASE.length);
-  const shown = SHOWCASE[animate ? frame.current : STILL_INDEX];
+  const shown = SHOWCASE[animate ? heroIndex(frame.current) : STILL_INDEX];
   const art = (i: number, first = false) => (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={SHOWCASE[i].src} alt="" width={768} height={768} fetchPriority={first ? "high" : "auto"} className="h-full w-full object-cover" />
+    <img src={SHOWCASE[heroIndex(i)].src} alt="" width={768} height={768} fetchPriority={first ? "high" : "auto"} className="h-full w-full object-cover" />
   );
 
   return (

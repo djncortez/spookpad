@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useRef } from "react";
 import SplitText from "@/components/bits/SplitText";
-import { useFx, useIdleReady, useVisibility } from "@/lib/use-fx";
+import { useFx, useVisibility } from "@/lib/use-fx";
 import { CostumeMorph } from "./CostumeMorph";
 import { HeroBackground } from "./HeroBackground";
 
@@ -13,14 +13,13 @@ const TITLE_CLASS = "font-display text-5xl leading-[1.05] text-pumpkin sm:text-7
 export function Hero() {
   const fx = useFx();
   // Motion starts only once the page is ready (not from the plan alone), so reduced-motion users never see an animated first frame.
-  const ready = useIdleReady();
-  const animate = fx.animate && ready;
+  const animate = fx.animate && fx.ready;
   const ref = useRef<HTMLElement>(null);
   const { active } = useVisibility(ref, "0px");
   return (
     <section ref={ref} aria-label="SpookPad" className="hero-bleed relative isolate grid min-h-[100svh] content-center overflow-hidden">
       <HeroBackground webgl={fx.heroWebGL} paused={!active} />
-      <div className="mx-auto grid w-full max-w-5xl items-center gap-8 px-4 py-8 sm:py-12 md:grid-cols-[1.15fr_1fr] md:gap-10">
+      <div className="mx-auto grid w-full max-w-5xl items-center gap-8 px-4 pb-16 pt-8 sm:py-12 sm:pb-16 md:grid-cols-[1.15fr_1fr] md:gap-10">
         <div className="grid justify-items-center gap-6 text-center md:justify-items-start md:text-left">
           {animate ? (
             <SplitText tag="h1" text={TITLE} className={TITLE_CLASS} splitType="words, chars" delay={35} duration={0.9} textAlign="inherit" />
