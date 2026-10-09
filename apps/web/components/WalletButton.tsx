@@ -25,7 +25,7 @@ export function WalletButton() {
   if (auth.wallet) {
     return (
       <div className="flex items-center gap-3">
-        <span className="rounded-full border border-line px-3 py-1.5 font-mono text-sm">👻 {shortAddress(auth.wallet)}</span>
+        <span className="rounded-full border border-line px-3 py-1.5 font-mono text-sm">{shortAddress(auth.wallet)}</span>
         <button onClick={() => void auth.signOut()} className="text-sm text-muted underline">Sign out</button>
       </div>
     );

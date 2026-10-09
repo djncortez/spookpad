@@ -42,7 +42,7 @@ function StepBody({ step }: { step: Step }) {
   return (
     <div className="grid gap-3">
       <span className="font-display text-2xl text-pumpkin">Step {step.n}</span>
-      <h3 className="flex items-center gap-3 text-2xl font-bold sm:text-3xl"><span aria-hidden>{step.emoji}</span>{step.title}</h3>
+      <h3 className="text-2xl font-bold sm:text-3xl">{step.title}</h3>
       <p className="max-w-2xl text-lg text-muted">{step.body}</p>
     </div>
   );

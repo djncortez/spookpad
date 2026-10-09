@@ -33,7 +33,7 @@ export function Header() {
           href="/"
           className={`origin-left font-display text-xl tracking-wide sm:text-3xl text-pumpkin transition-transform duration-300 motion-reduce:transition-none ${scrolled ? "scale-[0.85]" : ""}`}
         >
-          Spook<span className="text-ghost">Pad</span> <span aria-hidden className="hidden sm:inline">👻</span>
+          Spook<span className="text-ghost">Pad</span>
         </Link>
         <nav className="header-nav flex items-center gap-2.5 text-sm sm:gap-4 sm:text-base">
           <Link href="/#graveyard" className="text-muted hover:text-ghost">Graveyard</Link>

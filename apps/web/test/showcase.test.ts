@@ -3,14 +3,14 @@ import { CYCLE_MS, GALLERY_ITEMS, heroFrame, heroIndex, SHOWCASE, STILL_INDEX } 
 
 test("the hero cycles plain, then the seven costumes, every 3 s", () => {
   expect(SHOWCASE.map((c) => c.slug)).toEqual(["plain", "ghost", "witch", "vampire", "pumpkin", "mummy", "skeleton", "devil"]);
-  expect(SHOWCASE[2]).toEqual({ slug: "witch", label: "Witch", emoji: "🧙", src: "/showcase/witch.webp" });
+  expect(SHOWCASE[2]).toEqual({ slug: "witch", label: "Witch", src: "/showcase/witch.webp" });
   expect(CYCLE_MS).toBe(3000);
   expect(SHOWCASE[STILL_INDEX].slug).toBe("ghost");
 });
 
-test("the gallery shows the seven costumes with emoji and name", () => {
+test("the gallery shows the seven costumes with their names", () => {
   expect(GALLERY_ITEMS).toHaveLength(7);
-  expect(GALLERY_ITEMS[0]).toEqual({ image: "/showcase/ghost.webp", text: "👻 Ghost sheet" });
+  expect(GALLERY_ITEMS[0]).toEqual({ image: "/showcase/ghost.webp", text: "Ghost sheet" });
 });
 
 describe("heroFrame", () => {

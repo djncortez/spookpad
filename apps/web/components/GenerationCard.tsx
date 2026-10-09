@@ -29,7 +29,7 @@ export function GenerationCard({ g, costume, selected, onSelect, onRetry, busy }
         )}
       </div>
       <div className="flex items-center justify-between gap-2 p-3 text-sm">
-        <span>{costume?.emoji} {costume?.label ?? g.costume}</span>
+        <span>{costume?.label ?? g.costume}</span>
         {g.launched && <span className="text-slime">Launched</span>}
         {ready && (
           <button type="button" onClick={onSelect} className={selected ? "btn px-3 py-1 text-sm" : "btn-ghost btn px-3 py-1 text-sm"}>

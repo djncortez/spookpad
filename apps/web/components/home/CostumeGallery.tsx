@@ -14,7 +14,7 @@ function StaticRack() {
         <li key={c.slug} className="grid shrink-0 snap-center justify-items-center gap-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={c.src} alt={`The mascot as a ${c.label}`} width={240} height={240} loading="lazy" className="h-60 w-60 rounded-3xl border border-line object-cover" />
-          <span className="font-bold"><span aria-hidden>{c.emoji}</span> {c.label}</span>
+          <span className="font-bold">{c.label}</span>
         </li>
       ))}
     </ul>

@@ -47,7 +47,7 @@ export function Graveyard() {
   }, [mintKey]);
 
   const sorted = useMemo(() => (coins ? sortCoins(coins, caps, by) : []), [coins, caps, by]);
-  const emoji = (slug: string) => costumes.find((c) => c.slug === slug)?.emoji;
+  const costumeLabel = (slug: string) => costumes.find((c) => c.slug === slug)?.label;
 
   return (
     <section id="graveyard" className="grid scroll-mt-24 gap-4">
@@ -65,7 +65,7 @@ export function Graveyard() {
       {coins === null && !error && <p className="text-muted">Digging up coins…</p>}
       {coins?.length === 0 && <p className="text-muted">No coins yet. Be the first to rise from the grave.</p>}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-        {sorted.map((c) => <CoinCard key={c.mint} coin={c} cap={caps[c.mint]} emoji={emoji(c.costume)} touch={!pointerFine} still={still} />)}
+        {sorted.map((c) => <CoinCard key={c.mint} coin={c} cap={caps[c.mint]} costume={costumeLabel(c.costume)} touch={!pointerFine} still={still} />)}
       </div>
     </section>
   );

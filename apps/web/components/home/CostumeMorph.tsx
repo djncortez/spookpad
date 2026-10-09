@@ -43,7 +43,7 @@ export function CostumeMorph({ animate, active }: { animate: boolean; active: bo
         )}
       </div>
       <figcaption className="font-display text-2xl text-ghost">
-        <span aria-hidden>{shown.emoji}</span> {shown.label}
+        {shown.label}
       </figcaption>
     </figure>
   );

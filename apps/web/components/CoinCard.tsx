@@ -9,8 +9,8 @@ import TiltedCard from "./bits/TiltedCard";
 
 // A Graveyard coin: tilts and glows under the mouse; hovering (tapping the picture on touch) peeks at the original
 // image. The original loads only when first peeked at. Data and market cap are shown exactly as before.
-export function CoinCard({ coin, cap, emoji, touch = false, still = false }: {
-  coin: GraveCoin; cap: number | undefined; emoji?: string; touch?: boolean; still?: boolean;
+export function CoinCard({ coin, cap, costume, touch = false, still = false }: {
+  coin: GraveCoin; cap: number | undefined; costume?: string; touch?: boolean; still?: boolean;
 }) {
   const [peek, setPeek] = useState(false);
   const href = `/coin/?mint=${coin.mint}`;
@@ -22,7 +22,7 @@ export function CoinCard({ coin, cap, emoji, touch = false, still = false }: {
         // eslint-disable-next-line @next/next/no-img-element
         <img src={artUrl(coin.original_path) ?? ""} alt={`${coin.name} without its costume`} className="peek-in absolute inset-0 h-full w-full object-cover" />
       )}
-      {emoji && <span aria-hidden className="absolute right-2 top-2 rounded-full bg-night/80 px-2 py-1 text-lg">{emoji}</span>}
+      {costume && <span className="absolute right-2 top-2 rounded-full bg-night/80 px-2.5 py-1 text-xs font-semibold">{costume}</span>}
       {touch && (
         <span aria-hidden className="absolute bottom-2 left-2 rounded-full bg-night/80 px-2 py-0.5 text-xs">{peek ? "Costume" : "Tap to peek"}</span>
       )}

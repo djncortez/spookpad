@@ -284,7 +284,8 @@ export function LaunchWizard() {
   if (!auth.wallet) {
     return (
       <section className="card grid place-items-center gap-4 p-10 text-center">
-        <div aria-hidden className="float text-6xl">👻</div>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/showcase/ghost.webp" alt="" aria-hidden width={128} height={128} className="float h-32 w-32 rounded-3xl border border-line object-cover" />
         <h1 className="font-display text-4xl text-pumpkin">Launch a coin</h1>
         <p className="text-muted">Connect and sign in with your wallet to dress up your mascot and launch.</p>
         <WalletButton />
@@ -335,7 +336,7 @@ export function LaunchWizard() {
         {pending && (
           <p className="text-sm">A costume you paid for is still brewing. <button className="underline" onClick={checkPayment} disabled={busy}>Check payment</button></p>
         )}
-        <button className="btn justify-self-start" onClick={summon} disabled={busy || !image || !!paused || !!pending || !publicEnv.treasury}>🧙 Summon costume</button>
+        <button className="btn justify-self-start" onClick={summon} disabled={busy || !image || !!paused || !!pending || !publicEnv.treasury}>Summon costume</button>
         {generations.length > 0 && (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             {generations.map((g) => (
@@ -366,7 +367,7 @@ export function LaunchWizard() {
         {sentLaunch ? (
           <p className="text-sm">Your coin was sent but hasn&apos;t confirmed yet. <button className="underline" onClick={checkLaunch} disabled={busy}>Check launch</button></p>
         ) : (
-          <button className="btn justify-self-start text-lg" onClick={launch} disabled={busy || !selected || !settings || !!settings.launches_paused || !publicEnv.treasury}>🎃 Launch coin</button>
+          <button className="btn justify-self-start text-lg" onClick={launch} disabled={busy || !selected || !settings || !!settings.launches_paused || !publicEnv.treasury}>Launch coin</button>
         )}
       </section>
       </Reveal>

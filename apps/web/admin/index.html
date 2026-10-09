@@ -267,7 +267,7 @@ async function loadCostumes() {
       }
     };
     return el("div", { className: "costume" },
-      el("div", { className: "row" }, el("b", { textContent: `${c.emoji} ${c.label}` }), el("label", { className: "check" }, enabled, "Offered")),
+      el("div", { className: "row" }, el("b", { textContent: c.label }), el("label", { className: "check" }, enabled, "Offered")),
       prompt, el("div", { className: "row" }, save, status));
   }));
 }

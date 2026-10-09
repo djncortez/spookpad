@@ -2,20 +2,20 @@
 // scripts/make-showcase-art.mjs. Labels come from the seed costumes the art was made with.
 import { SEED_COSTUMES } from "@spookpad/core/costumes";
 
-export interface ShowcaseItem { slug: string; label: string; emoji: string; src: string }
+export interface ShowcaseItem { slug: string; label: string; src: string }
 
-const item = (slug: string, label: string, emoji: string): ShowcaseItem => ({ slug, label, emoji, src: `/showcase/${slug}.webp` });
+const item = (slug: string, label: string): ShowcaseItem => ({ slug, label, src: `/showcase/${slug}.webp` });
 
 // hero order: plain, ghost, witch, vampire, pumpkin, mummy, skeleton, devil, then around again
 export const SHOWCASE: ShowcaseItem[] = [
-  item("plain", "No costume", "✨"),
-  ...SEED_COSTUMES.map((c) => item(c.slug, c.label, c.emoji)),
+  item("plain", "No costume"),
+  ...SEED_COSTUMES.map((c) => item(c.slug, c.label)),
 ];
 export const CYCLE_MS = 3000; // one costume every 3 s
 export const STILL_INDEX = 1;  // reduced motion: the hero shows the ghost costume, still
 
 // The gallery's 7 costumes (no plain). A module constant, so the WebGL gallery is never rebuilt by a re-render.
-export const GALLERY_ITEMS: { image: string; text: string }[] = SHOWCASE.slice(1).map((c) => ({ image: c.src, text: `${c.emoji} ${c.label}` }));
+export const GALLERY_ITEMS: { image: string; text: string }[] = SHOWCASE.slice(1).map((c) => ({ image: c.src, text: c.label }));
 
 // The animated cycle starts on the costume the still image shows, so motion starting changes nothing on screen.
 export const heroIndex = (i: number, count: number = SHOWCASE.length): number => (i + STILL_INDEX) % count;

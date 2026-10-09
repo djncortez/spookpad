@@ -1,6 +1,10 @@
 "use client";
 import type { Costume } from "@/lib/public-data";
+import { SHOWCASE } from "@/lib/showcase";
 import SpotlightCard from "./bits/SpotlightCard";
+
+// the mascot wearing each costume (costumes added later in admin have no picture and show their name only)
+const art = (slug: string) => SHOWCASE.find((s) => s.slug === slug)?.src;
 
 // Same props and radio behaviour as before; each costume is a SpotlightCard tile that lifts on hover, and the
 // selected one glows pumpkin.
@@ -29,9 +33,12 @@ export function CostumePicker({ costumes, value, onChange, disabled }: {
               aria-checked={on}
               disabled={disabled}
               onClick={() => onChange(c.slug)}
-              className="flex w-full flex-col items-center gap-1 px-3 py-4 focus-visible:outline-2 focus-visible:-outline-offset-4 focus-visible:outline-ghost disabled:opacity-60"
+              className="flex w-full flex-col items-center gap-2 px-3 py-4 focus-visible:outline-2 focus-visible:-outline-offset-4 focus-visible:outline-ghost disabled:opacity-60"
             >
-              <span aria-hidden className="text-4xl">{c.emoji}</span>
+              {art(c.slug) && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={art(c.slug)} alt="" aria-hidden width={96} height={96} loading="lazy" className="h-20 w-20 rounded-2xl object-cover" />
+              )}
               <span className="text-sm font-semibold">{c.label}</span>
             </button>
           </SpotlightCard>
