@@ -10,7 +10,7 @@ export function howItWorksSteps(settings: Pick<PublicSettings, "costume_fee_lamp
   const launchFee = settings ? ` SpookPad's launch fee is ${solText(settings.launch_fee_lamports)}.` : "";
   return [
     { n: 1, emoji: "🖼️", title: "Upload your mascot", body: "Any PNG, JPG or WebP: your coin's own character, exactly as you drew it." },
-    { n: 2, emoji: "🪄", title: "Pick a costume", body: `AI dresses your mascot in seconds${costumeFee}, and a failed one is retried for free.` },
+    { n: 2, emoji: "🧙", title: "Pick a costume", body: `AI dresses your mascot in seconds${costumeFee}, and a failed one is retried for free.` },
     { n: 3, emoji: "🎃", title: "Launch on pump.fun", body: `You launch from your own wallet, so pump.fun's creator fees are yours.${launchFee}` },
   ];
 }

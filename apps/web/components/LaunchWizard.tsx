@@ -335,7 +335,7 @@ export function LaunchWizard() {
         {pending && (
           <p className="text-sm">A costume you paid for is still brewing. <button className="underline" onClick={checkPayment} disabled={busy}>Check payment</button></p>
         )}
-        <button className="btn justify-self-start" onClick={summon} disabled={busy || !image || !!paused || !!pending || !publicEnv.treasury}>🪄 Summon costume</button>
+        <button className="btn justify-self-start" onClick={summon} disabled={busy || !image || !!paused || !!pending || !publicEnv.treasury}>🧙 Summon costume</button>
         {generations.length > 0 && (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             {generations.map((g) => (
