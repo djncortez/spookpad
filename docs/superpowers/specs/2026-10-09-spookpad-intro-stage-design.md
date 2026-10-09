@@ -75,7 +75,10 @@ hero background, phones get it too: on screens under 640 px the device pixel rat
 ## Performance and accessibility
 
 - three.js stays out of the home page's initial JavaScript. `scripts/check-initial-js.mjs` must still pass.
-- The cut-outs load after first paint: the plain one first, then the rest.
+- The scene (three.js and the cut-outs) starts on the visitor's first scroll, touch, key press or mouse movement, or
+  at once when the page opens already scrolled. Building it right after load cost about a second of main-thread time
+  on a mid-range phone (Lighthouse 60); until then the stage shows the same picture as today's hero.
+- The cut-outs load once the scene starts: the plain one first, then the rest.
 - Lighthouse mobile performance on the home page stays at 70 or more.
 - The canvas is `aria-hidden`. The headline stays real text in the page, and the costume name is announced politely
   when the pick lands.
