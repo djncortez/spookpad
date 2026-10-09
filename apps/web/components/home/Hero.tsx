@@ -1,16 +1,22 @@
 "use client";
-import Link from "next/link";
 import { useRef } from "react";
-import SplitText from "@/components/bits/SplitText";
+import { FxBoundary } from "@/components/fx/FxBoundary";
 import { useFx, useVisibility } from "@/lib/use-fx";
 import { CostumeMorph } from "./CostumeMorph";
 import { HeroBackground } from "./HeroBackground";
+import { HeroCopy } from "./HeroCopy";
+import { IntroStage } from "./IntroStage";
 
-const TITLE = "Every coin wears a costume";
-const TITLE_CLASS = "font-display text-5xl leading-[1.05] text-pumpkin sm:text-7xl";
+// The opening: the 3D scroll intro when it may run, else (server render, first paint, reduced motion, no WebGL, or
+// the scene failing) today's full-viewport hero.
+export function Hero() {
+  const fx = useFx();
+  const classic = <ClassicHero />;
+  return fx.intro3d ? <FxBoundary fallback={classic}><IntroStage /></FxBoundary> : classic;
+}
 
 // Full-viewport opening: what SpookPad does, in a few seconds.
-export function Hero() {
+function ClassicHero() {
   const fx = useFx();
   // Motion starts only once the page is ready (not from the plan alone), so reduced-motion users never see an animated first frame.
   const animate = fx.animate && fx.ready;
@@ -21,18 +27,7 @@ export function Hero() {
       <HeroBackground webgl={fx.heroWebGL} paused={!active} />
       <div className="mx-auto grid w-full max-w-5xl items-center gap-8 px-4 pb-16 pt-8 sm:py-12 sm:pb-16 md:grid-cols-[1.15fr_1fr] md:gap-10">
         <div className="grid justify-items-center gap-6 text-center md:justify-items-start md:text-left">
-          {animate ? (
-            <SplitText tag="h1" text={TITLE} className={TITLE_CLASS} splitType="words, chars" delay={35} duration={0.9} textAlign="inherit" />
-          ) : (
-            <h1 className={TITLE_CLASS}>{TITLE}</h1>
-          )}
-          <p className="max-w-xl text-lg text-muted">
-            Upload your mascot, pick a Halloween costume, and AI dresses it up. Then launch it on pump.fun from your own wallet.
-          </p>
-          <div className="flex flex-wrap justify-center gap-3 md:justify-start">
-            <Link href="/launch/" className="btn text-lg">Launch a coin</Link>
-            <a href="#graveyard" className="btn btn-ghost text-lg">See the Graveyard</a>
-          </div>
+          <HeroCopy animate={animate} />
         </div>
         <CostumeMorph animate={animate} active={active} />
       </div>

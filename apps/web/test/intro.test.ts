@@ -26,9 +26,12 @@ describe("introFrame", () => {
     expect(introFrame(0.5, 2).ringAngle).not.toBeCloseTo(introFrame(0.7, 2).ringAngle, 3);
   });
 
-  test("the costumes rise between 0.15 and 0.3", () => {
+  test("the costumes rise between 0.15 and 0.3, and sink away as the closing text comes in", () => {
     expect(introFrame(0.15, 0).ringRise).toBe(0);
     expect(introFrame(0.3, 0).ringRise).toBe(1);
+    expect(introFrame(0.85, 0).ringRise).toBe(1);
+    expect(introFrame(0.95, 0).ringRise).toBe(0);
+    expect(introFrame(1, 0).ringRise).toBe(0);
   });
 
   test("the mascot wears plain before the swap and the pick from the swap on", () => {

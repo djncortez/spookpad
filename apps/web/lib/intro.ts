@@ -11,7 +11,7 @@ export interface IntroFrame {
   textIn: number;     // opening text opacity
   textOut: number;    // closing text opacity
   camZ: number;       // camera distance from the mascot
-  ringRise: number;   // 0: costumes below the floor, 1: on the ring
+  ringRise: number;   // 0: costumes below the floor, 1: on the ring (they sink away again at the end)
   ringAngle: number;  // ring item i stands at ringAngle + i * RING_STEP; angle 0 is the front (nearest the camera)
   yaw: number;        // mascot turn, radians, toward the costume nearest the front
   lean: number;       // mascot tilt, radians
@@ -39,7 +39,8 @@ export function introFrame(progress: number, pick: number): IntroFrame {
     textIn: 1 - ease(seg(p, 0, 0.15)),
     textOut: ease(seg(p, 0.85, 0.95)),
     camZ: 9 - 3 * ease(seg(p, 0, 0.3)),
-    ringRise: ease(seg(p, 0.15, 0.3)),
+    // the wardrobe sinks away with the closing text, leaving the picked costume alone on the stage beside it
+    ringRise: ease(seg(p, 0.15, 0.3)) * (1 - ease(seg(p, 0.85, 0.95))),
     ringAngle,
     yaw,
     lean: -0.35 * yaw,

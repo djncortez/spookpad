@@ -51,7 +51,7 @@ chosen at random once per page visit.
 | 0.15 to 0.30 | The seven costumes rise up from the floor onto the ring. |
 | 0.30 to 0.70 | The ring turns one and a half times as you scroll and ends with `pick` in front. The mascot turns (up to 25 degrees) and leans toward whichever costume is in front, and bobs gently. |
 | 0.70 to 0.85 | The mascot hops. At the top of the hop an orange smoke puff (about 40 sprites) hides it; the mascot's picture switches from plain to `pick`; the picked costume leaves the ring; the mascot lands with a squash and bounce. |
-| 0.85 to 1 | The headline "Every coin wears a costume" and the Launch a coin / See the Graveyard buttons fade in over the stage, with the costume's name under the mascot. |
+| 0.85 to 1 | The wardrobe sinks back into the floor. The headline "Every coin wears a costume" and the Launch a coin / See the Graveyard buttons fade in beside the mascot, with "It chose the ..." at the bottom of the stage. |
 
 A small "Skip intro" link at the bottom of the stage jumps to `#stats`. Scrolling past the section continues into the
 stats, How it works, the gallery and the Graveyard, all unchanged.

@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import sharp from "sharp";
+// @ts-expect-error plain .mjs script without type declarations
 import { backgroundMask, contentBox, cutout, CUT_SIZE, MAX_CUT_BYTES } from "../cutout-lib.mjs";
 
 const BG = [35, 24, 62];

@@ -67,6 +67,12 @@ body { overflow-x: clip; }
   width: 100vw; margin-left: calc(50% - 50vw);
   margin-top: calc(-1 * (var(--header-h, 4.5rem) + 2rem)); padding-top: var(--header-h, 4.5rem);
 }
+/* the scroll intro: full width, and its top slides up under the sticky header and main's top padding like the hero;
+   the sticky stage inside adds the header's height back as padding */
+.intro-bleed {
+  width: 100vw; margin-left: calc(50% - 50vw);
+  margin-top: calc(-1 * (var(--header-h, 4.5rem) + 2rem));
+}
 /* the hero's background without WebGL (phones, no WebGL, reduced motion) and under the WebGL layers */
 .hero-gradient {
   background:
