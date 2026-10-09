@@ -1,5 +1,6 @@
 import { Graveyard } from "@/components/Graveyard";
 import { Reveal } from "@/components/fx/Reveal";
+import { CostumeGallery } from "@/components/home/CostumeGallery";
 import { Hero } from "@/components/home/Hero";
 import { HowItWorks } from "@/components/home/HowItWorks";
 import { StatsTicker } from "@/components/home/StatsTicker";
@@ -10,6 +11,7 @@ export default function Home() {
       <Hero />
       <Reveal><StatsTicker /></Reveal>
       <HowItWorks />
+      <Reveal><CostumeGallery /></Reveal>
       <Graveyard />
     </div>
   );
