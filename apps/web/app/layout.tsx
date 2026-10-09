@@ -5,6 +5,7 @@ import "./globals.css";
 import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import { Providers } from "@/components/Providers";
+import { SiteFx } from "@/components/fx/SiteFx";
 
 const display = Creepster({ subsets: ["latin"], weight: "400", variable: "--font-creepster" });
 const sans = Space_Grotesk({ subsets: ["latin"], weight: ["400", "500", "700"], variable: "--font-grotesk" });
@@ -25,6 +26,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <Header />
           <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8">{children}</main>
           <Footer />
+          <SiteFx />
         </Providers>
       </body>
     </html>

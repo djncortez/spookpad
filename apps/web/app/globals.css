@@ -39,7 +39,45 @@ body {
 .fog { pointer-events: none; position: fixed; inset: auto 0 0 0; height: 40vh; background: linear-gradient(to top, #2a184666, transparent); z-index: -1; }
 @keyframes float { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(-10px) } }
 .float { animation: float 4s ease-in-out infinite; }
+/* ===== redesign ===== */
+html { scroll-padding-top: calc(var(--header-h, 4.5rem) + 1rem); }
+body { overflow-x: clip; }
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+  /* SplitText reveals the hero title; if its script never runs, the title still appears after 2.5 s */
+  .split-parent { opacity: 0; animation: split-failsafe 0s linear 2.5s forwards; }
+}
+@keyframes split-failsafe { to { opacity: 1; } }
+
+/* a full-width band inside the centered main column */
+.full-bleed { width: 100vw; margin-left: calc(50% - 50vw); }
+/* the hero also slides up under the sticky header and main's top padding (2rem) */
+.hero-bleed {
+  width: 100vw; margin-left: calc(50% - 50vw);
+  margin-top: calc(-1 * (var(--header-h, 4.5rem) + 2rem)); padding-top: var(--header-h, 4.5rem);
+}
+/* the hero's background without WebGL (phones, no WebGL, reduced motion) and under the WebGL layers */
+.hero-gradient {
+  background:
+    radial-gradient(60% 50% at 70% 35%, #ff7a1a22 0%, transparent 70%),
+    radial-gradient(90% 70% at 30% 20%, #3a1d5e 0%, #1a1030 50%, var(--color-night) 100%);
+}
+
+@keyframes bubble { 0% { transform: translateY(0) scale(.6); opacity: 0 } 30% { opacity: 1 } 100% { transform: translateY(-26px) scale(1.1); opacity: 0 } }
+.cauldron-bubbles circle { animation: bubble 1.8s ease-in infinite; transform-box: fill-box; transform-origin: center; }
+.cauldron-bubbles circle:nth-child(2) { animation-delay: .6s; }
+.cauldron-bubbles circle:nth-child(3) { animation-delay: 1.2s; }
+@keyframes flicker { 0%, 100% { transform: scaleY(1) } 50% { transform: scaleY(.75) } }
+.cauldron-fire path { animation: flicker .5s ease-in-out infinite; transform-box: fill-box; transform-origin: bottom; }
+.cauldron-fire path:nth-child(2) { animation-delay: .15s; }
+@keyframes dissolve-in { from { opacity: 0; filter: blur(12px) saturate(0); transform: scale(1.04) } to { opacity: 1; filter: none; transform: none } }
+.dissolve-in { animation: dissolve-in .9s ease-out both; }
+@keyframes peek-in { from { opacity: 0 } to { opacity: 1 } }
+.peek-in { animation: peek-in .25s ease-out both; }
+.reveal-range { width: 100%; accent-color: var(--color-pumpkin); cursor: ew-resize; }
+
 @media (prefers-reduced-motion: reduce) {
   .float { animation: none; }
   .btn { transition: none; }
+  .cauldron-bubbles circle, .cauldron-fire path, .dissolve-in, .peek-in { animation: none; }
 }
