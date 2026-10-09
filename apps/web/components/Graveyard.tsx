@@ -4,7 +4,9 @@ import { publicEnv } from "@/lib/env";
 import { graveyardCaps, newestOnly } from "@/lib/graveyard-caps";
 import { fetchGraveyard, sortCoins, type GraveCoin } from "@/lib/graveyard";
 import { fetchCostumes, type Costume } from "@/lib/public-data";
+import { usePointerFine, useReducedMotion } from "@/lib/use-fx";
 import { CoinCard } from "./CoinCard";
+import { SectionHeading } from "./fx/SectionHeading";
 
 const LIST_MS = 60_000; // new launches
 const CAPS_MS = 15_000; // market caps (one batched chain read)
@@ -15,6 +17,8 @@ export function Graveyard() {
   const [costumes, setCostumes] = useState<Costume[]>([]);
   const [by, setBy] = useState<"new" | "cap">("new");
   const [error, setError] = useState<string | null>(null);
+  const pointerFine = usePointerFine();
+  const still = useReducedMotion();
 
   useEffect(() => {
     let alive = true;
@@ -48,7 +52,7 @@ export function Graveyard() {
   return (
     <section id="graveyard" className="grid scroll-mt-24 gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="font-display text-4xl">The Graveyard</h2>
+        <SectionHeading>The Graveyard</SectionHeading>
         <div role="tablist" aria-label="Sort" className="flex gap-2">
           {(["new", "cap"] as const).map((k) => (
             <button key={k} role="tab" aria-selected={by === k} onClick={() => setBy(k)} className={by === k ? "btn px-4 py-1.5" : "btn btn-ghost px-4 py-1.5"}>
@@ -61,7 +65,7 @@ export function Graveyard() {
       {coins === null && !error && <p className="text-muted">Digging up coins…</p>}
       {coins?.length === 0 && <p className="text-muted">No coins yet. Be the first to rise from the grave.</p>}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-        {sorted.map((c) => <CoinCard key={c.mint} coin={c} cap={caps[c.mint]} emoji={emoji(c.costume)} />)}
+        {sorted.map((c) => <CoinCard key={c.mint} coin={c} cap={caps[c.mint]} emoji={emoji(c.costume)} touch={!pointerFine} still={still} />)}
       </div>
     </section>
   );

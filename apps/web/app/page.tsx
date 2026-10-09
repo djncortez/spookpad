@@ -12,7 +12,7 @@ export default function Home() {
       <Reveal><StatsTicker /></Reveal>
       <HowItWorks />
       <Reveal><CostumeGallery /></Reveal>
-      <Graveyard />
+      <Reveal><Graveyard /></Reveal>
     </div>
   );
 }
