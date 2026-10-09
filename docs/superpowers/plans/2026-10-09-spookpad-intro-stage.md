@@ -63,7 +63,7 @@ Spec: `docs/superpowers/specs/2026-10-09-spookpad-intro-stage-design.md`.
 **Interfaces:**
 - Produces: `backgroundMask(rgba: Uint8Array|Buffer, width: number, height: number, tolerance?: number): Uint8Array`
   (1 = background), `contentBox(mask, width, height): { left, top, width, height }`,
-  `cutout(bytes: Buffer, size?: number): Promise<Buffer>` (webp), constants `TOLERANCE = 40`, `CUT_SIZE = 512`,
+  `cutout(bytes: Buffer, size?: number): Promise<Buffer>` (webp), constants `TOLERANCE = 20`, `CUT_SIZE = 512`,
   `MAX_CUT_BYTES = 120_000`. Files at `apps/web/public/showcase/cut/<slug>.webp`, used by Task 3.
 
 - [ ] **Step 1: Write the failing tests** in `scripts/test/cutout.test.ts`:
@@ -138,7 +138,7 @@ Expected: FAIL, "Failed to load ../cutout-lib.mjs" (the file does not exist).
 // made transparent by a flood fill from the image edges, so a background-coloured pixel inside the character stays.
 import sharp from "sharp";
 
-export const TOLERANCE = 40;      // colour distance from the corner pixel that still counts as background
+export const TOLERANCE = 20;      // colour distance from the corner pixel that still counts as background (40 ate the skeleton's black suit)
 export const CUT_SIZE = 512;
 export const MAX_CUT_BYTES = 120_000;
 

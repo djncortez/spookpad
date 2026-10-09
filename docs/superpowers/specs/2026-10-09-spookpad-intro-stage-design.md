@@ -19,7 +19,7 @@ sit on a solid dark purple background. A one-off script `scripts/make-cutouts.mj
 flood-fills that background from the image edges to transparent and writes
 `apps/web/public/showcase/cut/<slug>.webp`: 512 x 512, transparent background, at most 120 KB each, committed. The
 flood fill is a pure function in `scripts/cutout-lib.mjs` (pixels in, alpha mask out), so it is unit tested.
-A colour within distance 40 of the corner colour counts as background. Pixels inside the character never become
+A colour within distance 20 of the corner colour counts as background. Pixels inside the character never become
 transparent, even when they match the background colour, because the fill only spreads from the edges. The owner
 approves the eight cut-outs before they ship.
 

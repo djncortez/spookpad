@@ -13,7 +13,8 @@
     "deploy:functions": "node scripts/build-functions.mjs && npx supabase functions deploy --no-verify-jwt --use-api",
     "dev": "node --env-file-if-exists=.env scripts/build-admin.mjs && npm run dev -w apps/web",
     "build": "node --env-file-if-exists=.env scripts/build-admin.mjs && npm run build -w apps/web",
-    "showcase-art": "node --experimental-strip-types scripts/make-showcase-art.mjs"
+    "showcase-art": "node --experimental-strip-types scripts/make-showcase-art.mjs",
+    "cutouts": "node scripts/make-cutouts.mjs"
   },
   "devDependencies": {
     "@solana/web3.js": "^1.99.0",
