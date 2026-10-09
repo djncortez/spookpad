@@ -81,5 +81,5 @@ body { overflow-x: clip; }
   .btn { transition: none; }
   .cauldron-bubbles circle, .cauldron-fire path, .dissolve-in, .peek-in { animation: none; }
   /* Reveal's gsap inline styles must not hide or move anything */
-  .reveal { opacity: 1 !important; transform: none !important; }
+  .reveal { opacity: 1 !important; transform: none !important; visibility: visible !important; }
 }

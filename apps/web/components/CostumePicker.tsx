@@ -19,7 +19,7 @@ export function CostumePicker({ costumes, value, onChange, disabled }: {
             borderGlow={1}
             proximity={40}
             ambient={on}
-            className={`rounded-[1.25rem] transition-transform duration-200 motion-safe:hover:-translate-y-1 ${
+            className={`rounded-[1.25rem] transition-transform duration-200 ${disabled ? "" : "motion-safe:hover:-translate-y-1"} ${
               on ? "outline-2 outline-pumpkin drop-shadow-[0_0_14px_#ff7a1a88]" : ""
             }`}
           >
@@ -29,7 +29,7 @@ export function CostumePicker({ costumes, value, onChange, disabled }: {
               aria-checked={on}
               disabled={disabled}
               onClick={() => onChange(c.slug)}
-              className="flex w-full flex-col items-center gap-1 px-3 py-4 disabled:opacity-60"
+              className="flex w-full flex-col items-center gap-1 px-3 py-4 focus-visible:outline-2 focus-visible:-outline-offset-4 focus-visible:outline-ghost disabled:opacity-60"
             >
               <span aria-hidden className="text-4xl">{c.emoji}</span>
               <span className="text-sm font-semibold">{c.label}</span>

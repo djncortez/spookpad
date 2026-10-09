@@ -7,11 +7,15 @@ import { BREW_EVERY_MS, brewLine } from "@/lib/brew";
 export function Cauldron({ compact = false }: { compact?: boolean }) {
   const [tick, setTick] = useState(0);
   useEffect(() => {
-    const timer = setInterval(() => setTick((t) => t + 1), BREW_EVERY_MS);
+    // no rotating lines under reduced motion, and none while the tab is hidden
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const timer = setInterval(() => {
+      if (!document.hidden) setTick((t) => t + 1);
+    }, BREW_EVERY_MS);
     return () => clearInterval(timer);
   }, []);
   return (
-    <span aria-hidden className="grid justify-items-center gap-1 text-center">
+    <span aria-hidden className={`grid justify-items-center gap-1 text-center ${compact ? "w-14 shrink-0" : ""}`}>
       <svg viewBox="0 0 120 100" className={compact ? "h-12 w-14" : "h-20 w-24"}>
         <g className="cauldron-bubbles" fill="#9be15d">
           <circle cx="45" cy="38" r="5" />
@@ -27,7 +31,7 @@ export function Cauldron({ compact = false }: { compact?: boolean }) {
           <path d="M72 99 q5 -10 10 0 z" />
         </g>
       </svg>
-      <span className="text-xs font-semibold">{brewLine(tick)}</span>
+      {!compact && <span className="text-xs font-semibold">{brewLine(tick)}</span>}
     </span>
   );
 }
