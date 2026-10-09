@@ -2,9 +2,10 @@
 // scripts/make-showcase-art.mjs. Labels come from the seed costumes the art was made with.
 import { SEED_COSTUMES } from "@spookpad/core/costumes";
 
-export interface ShowcaseItem { slug: string; label: string; src: string }
+export interface ShowcaseItem { slug: string; label: string; src: string; cut: string }
 
-const item = (slug: string, label: string): ShowcaseItem => ({ slug, label, src: `/showcase/${slug}.webp` });
+// cut: the transparent cut-out the scroll intro stands on its stage (scripts/make-cutouts.mjs)
+const item = (slug: string, label: string): ShowcaseItem => ({ slug, label, src: `/showcase/${slug}.webp`, cut: `/showcase/cut/${slug}.webp` });
 
 // hero order: plain, ghost, witch, vampire, pumpkin, mummy, skeleton, devil, then around again
 export const SHOWCASE: ShowcaseItem[] = [

@@ -5,26 +5,26 @@ const desktop: FxEnv = { reducedMotion: false, pointerFine: true, wide: true, we
 
 describe("fxPlan", () => {
   test("a capable desktop gets every effect", () => {
-    expect(fxPlan(desktop)).toEqual({ animate: true, heroWebGL: true, galleryWebGL: true, ghostCursor: true, sparks: true });
+    expect(fxPlan(desktop)).toEqual({ animate: true, heroWebGL: true, galleryWebGL: true, ghostCursor: true, sparks: true, intro3d: true });
   });
   test("reduced motion turns everything off", () => {
     expect(fxPlan({ ...desktop, reducedMotion: true })).toEqual({
-      animate: false, heroWebGL: false, galleryWebGL: false, ghostCursor: false, sparks: false,
+      animate: false, heroWebGL: false, galleryWebGL: false, ghostCursor: false, sparks: false, intro3d: false,
     });
   });
   test("touch devices get no ghost cursor", () => {
-    expect(fxPlan({ ...desktop, pointerFine: false })).toMatchObject({ ghostCursor: false, heroWebGL: true, sparks: true });
+    expect(fxPlan({ ...desktop, pointerFine: false })).toMatchObject({ ghostCursor: false, heroWebGL: true, sparks: true, intro3d: true });
   });
-  test("below 640 px the hero background is the CSS gradient and there is no ghost cursor; the gallery stays", () => {
-    expect(fxPlan({ ...desktop, wide: false })).toMatchObject({ heroWebGL: false, ghostCursor: false, galleryWebGL: true });
+  test("below 640 px the hero background is the CSS gradient and there is no ghost cursor; the gallery and the intro stay", () => {
+    expect(fxPlan({ ...desktop, wide: false })).toMatchObject({ heroWebGL: false, ghostCursor: false, galleryWebGL: true, intro3d: true });
   });
   test("no WebGL (or not checked yet) means static fallbacks, still animated", () => {
     for (const webgl of [false, null]) {
-      expect(fxPlan({ ...desktop, webgl })).toEqual({ animate: true, heroWebGL: false, galleryWebGL: false, ghostCursor: false, sparks: true });
+      expect(fxPlan({ ...desktop, webgl })).toEqual({ animate: true, heroWebGL: false, galleryWebGL: false, ghostCursor: false, sparks: true, intro3d: false });
     }
   });
   test("nothing heavy loads before the page is ready", () => {
-    expect(fxPlan({ ...desktop, ready: false })).toEqual({ animate: true, heroWebGL: false, galleryWebGL: false, ghostCursor: false, sparks: false });
+    expect(fxPlan({ ...desktop, ready: false })).toEqual({ animate: true, heroWebGL: false, galleryWebGL: false, ghostCursor: false, sparks: false, intro3d: false });
   });
 });
 

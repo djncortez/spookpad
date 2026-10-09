@@ -17,6 +17,7 @@ export interface FxPlan {
   galleryWebGL: boolean; // CircularGallery (else a static row of images)
   ghostCursor: boolean;  // GhostCursor trail
   sparks: boolean;       // ClickSpark
+  intro3d: boolean;      // the 3D scroll intro (else today's hero); phones too, at a lower resolution
 }
 
 export function fxPlan(e: FxEnv): FxPlan {
@@ -28,6 +29,7 @@ export function fxPlan(e: FxEnv): FxPlan {
     galleryWebGL: gl,
     ghostCursor: gl && e.wide && e.pointerFine,
     sparks: animate && e.ready,
+    intro3d: gl,
   };
 }
 
