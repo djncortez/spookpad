@@ -2,7 +2,7 @@
 'use client';
 // From React Bits (https://reactbits.dev) — ScrollStack, TS + Tailwind variant, MIT + Commons Clause license.
 // Source: https://github.com/DavidHDev/react-bits/blob/b2098591ad5b3489eff65ca9e5b9f9bdf2de29c3/src/ts-tailwind/Components/ScrollStack/ScrollStack.tsx
-// SpookPad changes: native scroll events instead of Lenis (no smooth-scroll hijacking of the page; works with reduced motion), window-mode offsets ignore the card's own transform, smaller paddings for SpookPad's layout.
+// SpookPad changes: native scroll events instead of Lenis (no smooth-scroll hijacking of the page; works with reduced motion), window-mode offsets ignore the card's own transform, smaller paddings for SpookPad's layout, scroll handler throttled to one update per animation frame, ResizeObserver re-measures cards.
 
 import React, { useLayoutEffect, useRef, useCallback } from 'react';
 import type { ReactNode } from 'react';
@@ -214,8 +214,13 @@ const ScrollStack: React.FC<ScrollStackProps> = ({
     getElementOffset
   ]);
 
+  // SpookPad edit: at most one transform update per animation frame
   const handleScroll = useCallback(() => {
-    updateCardTransforms();
+    if (animationFrameRef.current !== null) return;
+    animationFrameRef.current = requestAnimationFrame(() => {
+      animationFrameRef.current = null;
+      updateCardTransforms();
+    });
   }, [updateCardTransforms]);
 
   // native scroll events instead of Lenis
@@ -258,10 +263,16 @@ const ScrollStack: React.FC<ScrollStackProps> = ({
 
     updateCardTransforms();
 
+    // SpookPad edit: re-measure when a card's height changes (late fonts, text that arrives later)
+    const resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => handleScroll()) : null;
+    cards.forEach((card) => resizeObserver?.observe(card));
+
     return () => {
-      if (animationFrameRef.current) {
+      if (animationFrameRef.current !== null) {
         cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
       }
+      resizeObserver?.disconnect();
       stopListening();
       stackCompletedRef.current = false;
       cardsRef.current = [];
@@ -281,6 +292,7 @@ const ScrollStack: React.FC<ScrollStackProps> = ({
     useWindowScroll,
     onStackComplete,
     listenToScroll,
+    handleScroll,
     updateCardTransforms
   ]);
 
