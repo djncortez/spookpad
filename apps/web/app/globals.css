@@ -73,11 +73,11 @@ body { overflow-x: clip; }
   width: 100vw; margin-left: calc(50% - 50vw);
   margin-top: calc(-1 * (var(--header-h, 4.5rem) + 2rem));
 }
-/* one screen by default (reduced motion; .intro-flat: no WebGL or the scene failed); 350 svh with a sticky one-screen
+/* one screen by default (reduced motion; .intro-flat: no WebGL or the scene failed); 600 svh with a sticky one-screen
    stage when motion is allowed. Set here, not by script, so the first paint already has the final height. */
 .intro-stage { min-height: 100svh; }
 @media (prefers-reduced-motion: no-preference) {
-  .intro-tall:not(.intro-flat) { height: 350svh; }
+  .intro-tall:not(.intro-flat) { height: 600svh; } /* INTRO_SVH in lib/intro.ts */
   .intro-tall:not(.intro-flat) > .intro-stage { height: 100svh; }
 }
 /* the hero's background without WebGL (phones, no WebGL, reduced motion) and under the WebGL layers */

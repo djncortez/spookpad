@@ -2,10 +2,10 @@
 // the scene needs out, so scrolling back up plays it exactly in reverse.
 export const RING_COUNT = 7;           // the seven costumes on the wardrobe ring
 export const RING_STEP = (2 * Math.PI) / RING_COUNT;
-export const INTRO_SVH = 350;          // the section's height; the stage inside it is sticky
+export const INTRO_SVH = 600;          // the section's height (set in globals.css .intro-tall); the stage inside is sticky
 export const SWAP_AT = 0.75;           // the top of the hop: the mascot's picture switches here, under full smoke
 export const MAX_YAW = (25 * Math.PI) / 180;
-const TURNS = 1.5;                     // ring turns between 0.3 and 0.7
+const TURNS = 1;                       // ring turns between 0.3 and 0.7 (1.5 felt rushed)
 
 export interface IntroFrame {
   textIn: number;     // opening text opacity
@@ -33,7 +33,7 @@ export function introFrame(progress: number, pick: number): IntroFrame {
   const ringAngle = end + TURNS * 2 * Math.PI * (1 - ease(seg(p, 0.3, 0.7)));
   // The items are 1/7 of a turn apart, so sin(7 * angle) is the same for all of them: it leans toward the item nearest
   // the front, passes through 0 halfway between two items, and is 0 when an item is exactly in front. At the ring's
-  // start (end + 3 pi) and end angles that holds too, so the mascot is still before 0.3 and after 0.7.
+  // start (end + 2 pi) and end angles that holds too, so the mascot is still before 0.3 and after 0.7.
   const yaw = MAX_YAW * Math.sin(RING_COUNT * ringAngle);
   return {
     textIn: 1 - ease(seg(p, 0, 0.15)),

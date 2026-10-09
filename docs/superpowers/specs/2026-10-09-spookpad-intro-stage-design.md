@@ -38,7 +38,7 @@ A three.js scene (three is already a dependency) in a new component, loaded with
 
 ## The scroll story
 
-The intro section is 350 svh tall with a sticky, full-screen stage inside it (CSS `position: sticky`; no GSAP pin).
+The intro section is 600 svh tall (350 felt too fast) with a sticky, full-screen stage inside it (CSS `position: sticky`; no GSAP pin).
 Scroll progress `p` (0 at the section's top, 1 when its bottom reaches the bottom of the screen) drives everything
 through one pure function in `apps/web/lib/intro.ts`: `introFrame(p, pick)` returns the camera distance, ring rise,
 ring angle, mascot turn and lean, hop height, squash, smoke amount, which picture the mascot wears, and the opacity of
@@ -49,7 +49,7 @@ chosen at random once per page visit.
 |---|---|
 | 0 to 0.15 | The opening text (headline, subline, buttons: the same as today's hero) is visible and fades out. The camera glides in. |
 | 0.15 to 0.30 | The seven costumes rise up from the floor onto the ring. |
-| 0.30 to 0.70 | The ring turns one and a half times as you scroll and ends with `pick` in front. The mascot turns (up to 25 degrees) and leans toward whichever costume is in front, and bobs gently. |
+| 0.30 to 0.70 | The ring turns once as you scroll and ends with `pick` in front. The mascot turns (up to 25 degrees) and leans toward whichever costume is in front, and bobs gently. |
 | 0.70 to 0.85 | The mascot hops. At the top of the hop an orange smoke puff (about 40 sprites) hides it; the mascot's picture switches from plain to `pick`; the picked costume leaves the ring; the mascot lands with a squash and bounce. |
 | 0.85 to 1 | The wardrobe sinks back into the floor. The headline "Every coin wears a costume" and the Launch a coin / See the Graveyard buttons fade in beside the mascot, with "It chose the ..." at the bottom of the stage. |
 
@@ -64,13 +64,14 @@ screen or the tab is hidden.
 A new flag `intro3d` in `fxPlan` (`apps/web/lib/fx.ts`): motion allowed, page ready, and WebGL available. Unlike the
 hero background, phones get it too: on screens under 640 px the device pixel ratio is 1 and the smoke uses 20 sprites.
 
-- **Server render, first paint, and whenever `intro3d` is false** (reduced motion, no WebGL, script failure): today's
-  hero, exactly as it is now: 100 svh, the CostumeMorph picture cycle and no pinning.
-- **When `intro3d` turns true,** the section grows to 350 svh and the stage takes over. The page then refreshes
-  ScrollTrigger (SiteFx already does this whenever the page height changes), so the reveals further down measure
-  their new positions. The stage cross-fades in only after
-  the plain cut-out and the floor are loaded. Until then today's hero stays visible.
-- If the scene throws, `FxBoundary` falls back to today's hero.
+- **The section is the hero from the server render on.** CSS sets its height before any script runs: 600 svh with a
+  sticky one-screen stage when motion is allowed, one screen under reduced motion. Nothing is swapped or resized after
+  load (swapping a short hero for the tall section after load re-measured the whole page and cost Lighthouse about 20
+  points). Until the scene has drawn the mascot, the stage shows today's hero: headline, buttons and the CostumeMorph
+  picture cycle. The stage cross-fades to 3D once the plain cut-out has loaded.
+- **No WebGL, or the scene throws** (`FxBoundary`): the section folds to one screen (`.intro-flat`) with today's hero.
+- The 3D scene follows the scroll position with a short glide (about 90% of the way in 0.4 s), so a mouse wheel's
+  jumps play smoothly.
 
 ## Performance and accessibility
 

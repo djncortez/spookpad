@@ -175,9 +175,16 @@ export default function IntroScene({ progress, pick, active, wide, onReady }: {
 
     let raf = 0;
     let announced = false;
+    let shown = progress.current ?? 0; // the progress on screen: glides toward the scroll position
+    let last = 0;
     const frame = (now: number) => {
       raf = activeRef.current ? requestAnimationFrame(frame) : 0;
-      const f = introFrame(progress.current ?? 0, pick);
+      const dt = last ? Math.min(0.1, (now - last) / 1000) : 0;
+      last = now;
+      const target = progress.current ?? 0;
+      // a mouse wheel scrolls in jumps; easing toward the target (about 90% of the way in 0.4 s) smooths them out
+      shown = Math.abs(target - shown) < 1e-4 ? target : shown + (target - shown) * (1 - Math.exp(-dt * 6));
+      const f = introFrame(shown, pick);
       const t = now / 1000;
 
       camera.position.set(0, 1.6 + (f.camZ - 6) * 0.25, f.camZ);
@@ -223,7 +230,7 @@ export default function IntroScene({ progress, pick, active, wide, onReady }: {
       renderer.render(scene, camera);
       if (plain && !announced) { announced = true; readyRef.current(); }
     };
-    const start = () => { if (!raf && activeRef.current) raf = requestAnimationFrame(frame); };
+    const start = () => { if (!raf && activeRef.current) { last = 0; raf = requestAnimationFrame(frame); } };
     startRef.current = start;
     start();
 

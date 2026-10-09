@@ -34,7 +34,7 @@ function SceneFailed({ onFail }: { onFail(): void }) {
 }
 
 // The hero and scroll intro (spec 2026-10-09-spookpad-intro-stage-design.md). The server render is already the final
-// layout: CSS makes the section 350 svh tall with a sticky stage when motion is allowed (.intro-tall), and one screen
+// layout: CSS makes the section 600 svh tall with a sticky stage when motion is allowed (.intro-tall), and one screen
 // otherwise, so nothing is swapped or resized after load. Scroll progress drives the 3D scene and the text; until the
 // scene has drawn the mascot, the stage is today's hero (headline, buttons, picture cycle). Without WebGL, or if the
 // scene fails, the section folds to one screen (.intro-flat).
