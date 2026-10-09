@@ -18,6 +18,7 @@ import { signFee } from "@/lib/fee-tx";
 import { checkPending, isDefinitive, NotSent, sendRaw, type Expiry } from "@/lib/pending";
 import { shortAddress, solText } from "@/lib/format";
 import { prepareImage, type PreparedImage } from "@/lib/image";
+import { partyUrl } from "@/lib/share";
 import { confirmLaunch, launchCoin, type LaunchStep } from "@/lib/launch-coin";
 import { fetchCostumes, fetchDraftGenerations, fetchSettings, type Costume, type PublicSettings } from "@/lib/public-data";
 import { finishPayment, retryCostume, summonCostume, type Generation, type SummonStep } from "@/lib/summon";
@@ -257,7 +258,7 @@ export function LaunchWizard() {
     }
     clearLaunch();
     switchDraft(newDraft());
-    router.push(`/coin/?mint=${mint}`);
+    router.push(partyUrl(mint));
   });
 
   const checkLaunch = () => run(async () => {
@@ -265,7 +266,7 @@ export function LaunchWizard() {
     if (!l) return;
     const r = await checkPending(() => confirmLaunch({ invoke, wait, onStep: (s) => setStatus(LAUNCH_TEXT[s]) }, l.mint, l.signature),
       connection, l.signature, l.expiry, "That launch never went through — you can launch again.");
-    if (r.kind === "done") { clearLaunch(); switchDraft(newDraft()); router.push(`/coin/?mint=${r.value}`); }
+    if (r.kind === "done") { clearLaunch(); switchDraft(newDraft()); router.push(partyUrl(r.value)); }
     else if (r.kind === "cleared") { clearLaunch(); setError(r.message); }
     else setError("Still waiting for Solana. Try again in a minute — you can't launch this costume twice.");
   });

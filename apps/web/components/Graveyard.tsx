@@ -3,17 +3,21 @@ import { useEffect, useMemo, useState } from "react";
 import { publicEnv } from "@/lib/env";
 import { graveyardCaps, newestOnly } from "@/lib/graveyard-caps";
 import { fetchGraveyard, sortCoins, type GraveCoin } from "@/lib/graveyard";
+import { podium, trend } from "@/lib/podium";
 import { fetchCostumes, type Costume } from "@/lib/public-data";
 import { usePointerFine, useReducedMotion } from "@/lib/use-fx";
 import { CoinCard } from "./CoinCard";
+import { Podium, type Moves } from "./Podium";
 import { SectionHeading } from "./fx/SectionHeading";
 
 const LIST_MS = 60_000; // new launches
 const CAPS_MS = 15_000; // market caps (one batched chain read)
+const MOVE_MS = 2_000;  // how long a cap that moved shows its arrow
 
 export function Graveyard() {
   const [coins, setCoins] = useState<GraveCoin[] | null>(null);
   const [caps, setCaps] = useState<Record<string, number>>({});
+  const [moves, setMoves] = useState<Moves>({});
   const [costumes, setCostumes] = useState<Costume[]>([]);
   const [by, setBy] = useState<"new" | "cap">("new");
   const [error, setError] = useState<string | null>(null);
@@ -38,19 +42,33 @@ export function Graveyard() {
     if (!mintKey) return;
     let alive = true;
     const mints = mintKey.split(",");
-    const deliver = newestOnly<Record<string, number>>((m) => { if (alive) setCaps(m); });
+    let last: Record<string, number> = {};
+    let clear: ReturnType<typeof setTimeout> | undefined;
+    const deliver = newestOnly<Record<string, number>>((m) => {
+      if (!alive) return;
+      // which caps moved since the last read: the podium flashes them up or down for a moment
+      const moved: Moves = {};
+      for (const mint of Object.keys(m)) { const t = trend(last[mint], m[mint]); if (t) moved[mint] = t; }
+      last = m;
+      setCaps(m);
+      setMoves(moved);
+      clearTimeout(clear);
+      clear = setTimeout(() => { if (alive) setMoves({}); }, MOVE_MS);
+    });
     const read = () => { if (!document.hidden) void deliver(graveyardCaps(mints, publicEnv.solanaRpcUrl)); };
     read();
     const timer = setInterval(read, CAPS_MS);
     document.addEventListener("visibilitychange", read);
-    return () => { alive = false; clearInterval(timer); document.removeEventListener("visibilitychange", read); };
+    return () => { alive = false; clearInterval(timer); clearTimeout(clear); document.removeEventListener("visibilitychange", read); };
   }, [mintKey]);
 
   const sorted = useMemo(() => (coins ? sortCoins(coins, caps, by) : []), [coins, caps, by]);
+  const kings = useMemo(() => (coins ? podium(coins, caps) : []), [coins, caps]);
   const costumeLabel = (slug: string) => costumes.find((c) => c.slug === slug)?.label;
 
   return (
     <section id="graveyard" className="grid scroll-mt-24 gap-4">
+      {kings.length > 0 && <Podium spots={kings} moves={moves} />}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <SectionHeading>The Graveyard</SectionHeading>
         <div role="tablist" aria-label="Sort" className="flex gap-2">
