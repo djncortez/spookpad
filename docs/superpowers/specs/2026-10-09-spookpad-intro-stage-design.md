@@ -15,10 +15,10 @@ art. No paid service, no new runtime dependency.
 ## Assets: cut-outs
 
 The eight showcase pictures (`apps/web/public/showcase/{plain,ghost,witch,vampire,pumpkin,mummy,skeleton,devil}.webp`)
-sit on a solid dark purple background. A one-off script `apps/web/scripts/make-cutouts.mjs` (sharp, already installed)
+sit on a solid dark purple background. A one-off script `scripts/make-cutouts.mjs` (sharp, already installed)
 flood-fills that background from the image edges to transparent and writes
 `apps/web/public/showcase/cut/<slug>.webp`: 512 x 512, transparent background, at most 120 KB each, committed. The
-flood fill is a pure function in `apps/web/scripts/cutout-lib.mjs` (pixels in, alpha mask out), so it is unit tested.
+flood fill is a pure function in `scripts/cutout-lib.mjs` (pixels in, alpha mask out), so it is unit tested.
 A colour within distance 40 of the corner colour counts as background. Pixels inside the character never become
 transparent, even when they match the background colour, because the fill only spreads from the edges. The owner
 approves the eight cut-outs before they ship.
@@ -67,7 +67,8 @@ hero background, phones get it too: on screens under 640 px the device pixel rat
 - **Server render, first paint, and whenever `intro3d` is false** (reduced motion, no WebGL, script failure): today's
   hero, exactly as it is now: 100 svh, the CostumeMorph picture cycle and no pinning.
 - **When `intro3d` turns true,** the section grows to 350 svh and the stage takes over. The page then refreshes
-  ScrollTrigger once, so the reveals further down measure their new positions. The stage cross-fades in only after
+  ScrollTrigger (SiteFx already does this whenever the page height changes), so the reveals further down measure
+  their new positions. The stage cross-fades in only after
   the plain cut-out and the floor are loaded. Until then today's hero stays visible.
 - If the scene throws, `FxBoundary` falls back to today's hero.
 
