@@ -42,8 +42,8 @@ export default function ClickSpark({
     let raf = 0;
 
     const resize = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+      canvas.width = document.documentElement.clientWidth; // not innerWidth: that includes the scrollbar and made the page scroll sideways
+      canvas.height = document.documentElement.clientHeight;
     };
 
     const draw = (now: number) => {
@@ -78,11 +78,13 @@ export default function ClickSpark({
     };
 
     resize();
-    window.addEventListener('resize', resize);
+    // the page box changes size with the window and when a scrollbar appears (no window resize event for that)
+    const ro = new ResizeObserver(resize);
+    ro.observe(document.documentElement);
     window.addEventListener('click', onClick);
     return () => {
       cancelAnimationFrame(raf);
-      window.removeEventListener('resize', resize);
+      ro.disconnect();
       window.removeEventListener('click', onClick);
     };
   }, [sparkColor, sparkSize, sparkRadius, sparkCount, duration, extraScale]);
