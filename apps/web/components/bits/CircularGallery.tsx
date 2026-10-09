@@ -2,7 +2,7 @@
 'use client';
 // From React Bits (https://reactbits.dev) — CircularGallery, TS + Tailwind variant, MIT + Commons Clause license.
 // Source: https://github.com/DavidHDev/react-bits/blob/b2098591ad5b3489eff65ca9e5b9f9bdf2de29c3/src/ts-tailwind/Components/CircularGallery/CircularGallery.tsx
-// SpookPad changes: device pixel ratio capped at 1.5, no wheel capture (the page scrolls normally), drags start on the gallery only, `paused` prop (stops drawing off screen), WebGL context released on unmount, SpookPad aria-label.
+// SpookPad changes: device pixel ratio capped at 1.5, no wheel capture (the page scrolls normally), drags start on the gallery only, `paused` prop (stops drawing off screen), WebGL context released on unmount, touch-pan-y, touchcancel handled, `onReady` callback (first frame drawn with every texture loaded), the canvas box is aria-hidden and not focusable (a decorative drag toy; SpookPad lists the costumes as text beside it).
 
 import { Camera, Mesh, Plane, Program, Renderer, Texture, Transform } from 'ogl';
 import { useEffect, useRef } from 'react';
@@ -257,6 +257,7 @@ interface MediaProps {
 }
 
 class Media {
+  onLoaded?: () => void;
   extra: number = 0;
   geometry: Plane;
   gl: GL;
@@ -392,7 +393,9 @@ class Media {
     img.onload = () => {
       texture.image = img;
       this.program.uniforms.uImageSizes.value = [img.naturalWidth, img.naturalHeight];
+      this.onLoaded?.();
     };
+    img.onerror = () => this.onLoaded?.();
   }
 
   createMesh() {
@@ -483,6 +486,7 @@ interface AppConfig {
   font?: string;
   scrollSpeed?: number;
   scrollEase?: number;
+  onReady?: () => void;
 }
 
 class App {
@@ -517,6 +521,9 @@ class App {
   isDown: boolean = false;
   start: number = 0;
   paused: boolean = false;
+  pendingImages: number = 0;
+  destroyed: boolean = false;
+  onReady?: () => void;
 
   constructor(
     container: HTMLElement,
@@ -527,9 +534,11 @@ class App {
       borderRadius = 0,
       font = 'bold 30px Figtree',
       scrollSpeed = 2,
-      scrollEase = 0.05
+      scrollEase = 0.05,
+      onReady
     }: AppConfig
   ) {
+    this.onReady = onReady;
     document.documentElement.classList.remove('no-js');
     this.container = container;
     this.scrollSpeed = scrollSpeed;
@@ -632,8 +641,9 @@ class App {
     ];
     const galleryItems = items && items.length ? items : defaultItems;
     this.mediasImages = galleryItems.concat(galleryItems);
+    this.pendingImages = this.mediasImages.length;
     this.medias = this.mediasImages.map((data, index) => {
-      return new Media({
+      const media = new Media({
         geometry: this.planeGeometry,
         gl: this.gl,
         image: data.image,
@@ -649,6 +659,10 @@ class App {
         borderRadius,
         font
       });
+      media.onLoaded = () => {
+        this.pendingImages -= 1;
+      };
+      return media;
     });
   }
 
@@ -730,6 +744,11 @@ class App {
       this.medias.forEach(media => media.update(this.scroll, direction));
     }
     this.renderer.render({ scene: this.scene, camera: this.camera });
+    if (this.onReady && this.pendingImages <= 0) {
+      const ready = this.onReady;
+      this.onReady = undefined;
+      ready();
+    }
     this.scroll.last = this.scroll.current;
     this.raf = window.requestAnimationFrame(this.update.bind(this));
   }
@@ -750,6 +769,7 @@ class App {
     this.container.addEventListener('touchstart', this.boundOnTouchDown, { passive: true });
     window.addEventListener('touchmove', this.boundOnTouchMove, { passive: true });
     window.addEventListener('touchend', this.boundOnTouchUp);
+    window.addEventListener('touchcancel', this.boundOnTouchUp);
 
     this.container?.addEventListener(
       'keydown',
@@ -767,6 +787,7 @@ class App {
     this.container.removeEventListener('touchstart', this.boundOnTouchDown);
     window.removeEventListener('touchmove', this.boundOnTouchMove);
     window.removeEventListener('touchend', this.boundOnTouchUp);
+    window.removeEventListener('touchcancel', this.boundOnTouchUp);
     this.gl.getExtension('WEBGL_lose_context')?.loseContext();
     if (this.renderer && this.renderer.gl && this.renderer.gl.canvas.parentNode) {
       this.renderer.gl.canvas.parentNode.removeChild(this.renderer.gl.canvas as HTMLCanvasElement);
@@ -791,6 +812,7 @@ interface CircularGalleryProps {
   scrollSpeed?: number;
   scrollEase?: number;
   paused?: boolean; // stop drawing while off screen
+  onReady?: () => void; // first frame drawn with every texture loaded
 }
 
 export default function CircularGallery({
@@ -802,8 +824,11 @@ export default function CircularGallery({
   fontUrl,
   scrollSpeed = 2,
   scrollEase = 0.05,
-  paused = false
+  paused = false,
+  onReady
 }: CircularGalleryProps) {
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
   const containerRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<App | null>(null);
   const pausedRef = useRef(paused);
@@ -824,7 +849,8 @@ export default function CircularGallery({
         borderRadius,
         font: resolvedFont,
         scrollSpeed,
-        scrollEase
+        scrollEase,
+        onReady: () => onReadyRef.current?.()
       });
       app.paused = pausedRef.current;
       appRef.current = app;
@@ -837,11 +863,9 @@ export default function CircularGallery({
   }, [items, bend, textColor, borderRadius, font, fontUrl, scrollSpeed, scrollEase]);
   return (
     <div
-      className="w-full h-full overflow-hidden cursor-grab active:cursor-grabbing"
+      className="w-full h-full overflow-hidden touch-pan-y cursor-grab active:cursor-grabbing"
       ref={containerRef}
-      tabIndex={0}
-      role="region"
-      aria-label="Costume gallery. Drag it, or use the Left and Right Arrow keys, to spin it."
+      aria-hidden="true"
     />
   );
 }
