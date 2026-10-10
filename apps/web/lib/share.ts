@@ -2,7 +2,7 @@
 // are tested; ShareButtons and the share card use them.
 import type { GraveCoin } from "./graveyard";
 
-export const SITE = "spookpad.netlify.app";
+export const SITE = "spookpad.xyz";
 
 export const pumpUrl = (mint: string): string => `https://pump.fun/coin/${mint}`;
 

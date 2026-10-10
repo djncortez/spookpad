@@ -3,13 +3,13 @@ import { coinPageUrl, partyUrl, pumpUrl, shareText, xIntentUrl } from "../lib/sh
 
 test("the share text names the coin, its ticker, its costume and SpookPad", () => {
   expect(shareText({ name: "Ghostchua", ticker: "GHOST" }, "Vampire")).toBe(
-    "Ghostchua ($GHOST) just rose from the grave dressed as a Vampire. Launched on spookpad.netlify.app",
+    "Ghostchua ($GHOST) just rose from the grave dressed as a Vampire. Launched on spookpad.xyz",
   );
 });
 
 test("without a costume name the text still reads well", () => {
   expect(shareText({ name: "Ghostchua", ticker: "GHOST" }, undefined)).toBe(
-    "Ghostchua ($GHOST) just rose from the grave in costume. Launched on spookpad.netlify.app",
+    "Ghostchua ($GHOST) just rose from the grave in costume. Launched on spookpad.xyz",
   );
 });
 
@@ -22,7 +22,7 @@ test("the X intent link carries the text and the link, encoded", () => {
 
 test("links: pump.fun, the coin page, and the coin page with the launch party", () => {
   expect(pumpUrl("M1")).toBe("https://pump.fun/coin/M1");
-  expect(coinPageUrl("https://spookpad.netlify.app", "M1")).toBe("https://spookpad.netlify.app/coin/?mint=M1");
+  expect(coinPageUrl("https://spookpad.xyz", "M1")).toBe("https://spookpad.xyz/coin/?mint=M1");
   expect(coinPageUrl("http://localhost:4173/", "M1")).toBe("http://localhost:4173/coin/?mint=M1");
   expect(partyUrl("M1")).toBe("/coin/?mint=M1&party=1");
 });
