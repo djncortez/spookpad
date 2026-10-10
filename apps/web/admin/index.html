@@ -54,6 +54,17 @@
     </section>
 
     <section class="panel">
+      <h2>Contract address</h2>
+      <p class="muted">SpookPad's token, shown in the home page's hero with a copy button and a pump.fun link. Leave it empty to hide it.</p>
+      <input type="text" id="ca-input" placeholder="Token address (CA)" autocomplete="off" spellcheck="false">
+      <div class="row">
+        <button id="ca-save" type="button">Save CA</button>
+        <button class="ghost" id="ca-clear" type="button">Remove CA</button>
+      </div>
+      <p id="ca-msg" role="status"></p>
+    </section>
+
+    <section class="panel">
       <h2>Settings</h2>
       <form id="settings-form"></form>
       <button id="save-btn" type="button">Save settings</button>
@@ -247,6 +258,37 @@ async function saveSettings() {
   }
 }
 
+// ===== the hero's contract address =====
+const SOLANA_ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/; // same rule as packages/core/src/settings.ts
+
+function renderCa() {
+  $("ca-input").value = current.site_ca || "";
+  $("ca-clear").hidden = !current.site_ca;
+}
+
+async function saveCa(value) {
+  const msg = $("ca-msg");
+  const ca = value.trim();
+  if (ca && !SOLANA_ADDRESS.test(ca)) return show(msg, "That isn't a Solana token address. Paste just the CA, not a link.", "err");
+  if (ca === (current.site_ca || "")) return show(msg, "No change.", "muted");
+  const question = ca ? `Show this CA on the home page?
+
+${ca}
+
+Traders will copy it, so check every character.` : "Remove the CA from the home page?";
+  if (!confirm(question)) return;
+  $("ca-save").disabled = $("ca-clear").disabled = true;
+  try {
+    current = await api("/settings", { method: "PATCH", body: JSON.stringify({ site_ca: ca || null }) });
+    renderCa();
+    show(msg, ca ? "Saved. The home page shows it on the next load." : "Removed from the home page.", "ok");
+  } catch (e) {
+    show(msg, e.message, "err");
+  } finally {
+    $("ca-save").disabled = $("ca-clear").disabled = false;
+  }
+}
+
 // ===== costumes =====
 async function loadCostumes() {
   const { costumes } = await api("/costumes");
@@ -296,12 +338,15 @@ async function showAdmin() {
   $("signin-panel").hidden = true;
   $("admin").hidden = false;
   renderSettings();
+  renderCa();
   await Promise.all([loadOverview(), loadCostumes(), loadFailed()]);
 }
 
 $("signin-btn").onclick = signIn;
 $("signout-btn").onclick = signOut;
 $("save-btn").onclick = saveSettings;
+$("ca-save").onclick = () => saveCa($("ca-input").value);
+$("ca-clear").onclick = () => saveCa("");
 if (sessionStorage.getItem(SESSION_KEY)) showAdmin().catch((e) => show($("signin-msg"), e.message, "err"));
 </script>
 </body>

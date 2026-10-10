@@ -6,12 +6,13 @@ describe("settings", () => {
     expect(DEFAULT_SETTINGS).toEqual({
       costume_fee_lamports: 1_000_000, launch_fee_lamports: 20_000_000, max_dev_buy_lamports: 5_000_000_000,
       max_generations_per_hour: 20, min_ai_credit_usd: 2, generations_paused: false, launches_paused: false, pause_reason: null,
+      site_ca: null,
     });
   });
   test("a database row (bigints and numeric as strings) becomes Settings", () => {
     expect(rowToSettings({
       id: true, costume_fee_lamports: "1000000", launch_fee_lamports: "20000000", max_dev_buy_lamports: "5000000000",
-      max_generations_per_hour: 20, min_ai_credit_usd: "2.00", generations_paused: false, launches_paused: false, pause_reason: null,
+      max_generations_per_hour: 20, min_ai_credit_usd: "2.00", generations_paused: false, launches_paused: false, pause_reason: null, site_ca: null,
       updated_at: "2026-10-08T00:00:00Z",
     })).toEqual(DEFAULT_SETTINGS);
   });
@@ -60,5 +61,18 @@ describe("settings", () => {
       ok: false,
       errors: ["Unknown setting: constructor."],
     });
+  });
+  test("the hero's contract address: a Solana address, trimmed; empty clears it", () => {
+    const CA = "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU";
+    expect(validateSettingsPatch(DEFAULT_SETTINGS, { site_ca: `  ${CA} ` })).toEqual({ ok: true, changed: { site_ca: CA } });
+    expect(validateSettingsPatch({ ...DEFAULT_SETTINGS, site_ca: CA }, { site_ca: "" })).toEqual({ ok: true, changed: { site_ca: null } });
+    expect(validateSettingsPatch({ ...DEFAULT_SETTINGS, site_ca: CA }, { site_ca: null })).toEqual({ ok: true, changed: { site_ca: null } });
+    expect(validateSettingsPatch({ ...DEFAULT_SETTINGS, site_ca: CA }, { site_ca: CA })).toEqual({ ok: true, changed: {} });
+    for (const bad of ["0OIl", "not an address", `${CA}x`, "https://pump.fun/coin/" + CA, 5]) {
+      expect(validateSettingsPatch(DEFAULT_SETTINGS, { site_ca: bad })).toEqual({
+        ok: false, errors: ["site_ca must be a Solana token address (32-44 letters and digits), or empty."],
+      });
+    }
+    expect(rowToSettings({ ...DEFAULT_SETTINGS, site_ca: CA }).site_ca).toBe(CA);
   });
 });

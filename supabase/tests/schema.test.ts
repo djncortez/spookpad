@@ -69,7 +69,7 @@ describe("lock-down", () => {
     }
     const [settings] = await db.as("anon", null, (tx) => tx`select * from v_settings_public`);
     expect(Object.keys(settings).sort()).toEqual(
-      ["costume_fee_lamports", "generations_paused", "launch_fee_lamports", "launches_paused", "max_dev_buy_lamports", "pause_reason"]);
+      ["costume_fee_lamports", "generations_paused", "launch_fee_lamports", "launches_paused", "max_dev_buy_lamports", "pause_reason", "site_ca"]);
     await expect(db.as("anon", null, (tx) => tx`select * from v_my_generations`)).rejects.toThrow(/permission denied/);
   });
 });

@@ -61,6 +61,16 @@ describe("admin", () => {
     expect((await call("PATCH", "settings", { session, body: { launch_fee_lamports: -5 } })).status).toBe(400);
   });
 
+  test("the hero's CA is set, refused when it isn't an address, and removed", async () => {
+    const { call, signIn } = setup();
+    const session = await signIn();
+    const CA = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+    expect((await call("PATCH", "settings", { session, body: { site_ca: CA } })).body).toMatchObject({ site_ca: CA });
+    expect((await call("PATCH", "settings", { session, body: { site_ca: `https://pump.fun/coin/${CA}` } })).status).toBe(400);
+    expect((await call("PATCH", "settings", { session, body: { site_ca: null } })).body).toMatchObject({ site_ca: null });
+    expect((await call("PATCH", "settings", { body: { site_ca: CA } })).status).toBe(401);
+  });
+
   test("costumes are listed and edited", async () => {
     const { call, signIn, log } = setup();
     const session = await signIn();

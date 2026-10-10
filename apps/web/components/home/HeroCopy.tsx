@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import SplitText from "@/components/bits/SplitText";
+import { HeroCa } from "./HeroCa";
 
 const TITLE = "Every coin wears a costume";
 const TITLE_CLASS = "font-display text-5xl leading-[1.05] text-pumpkin sm:text-7xl";
@@ -21,6 +22,7 @@ export function HeroCopy({ animate }: { animate: boolean }) {
         <Link href="/launch/" className="btn text-lg">Launch a coin</Link>
         <a href="#graveyard" className="btn btn-ghost text-lg">See the Graveyard</a>
       </div>
+      <HeroCa />
     </>
   );
 }

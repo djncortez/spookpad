@@ -9,6 +9,7 @@ export interface PublicSettings {
   generations_paused: boolean;
   launches_paused: boolean;
   pause_reason: "admin" | "low_credit" | null;
+  site_ca: string | null; // SpookPad's own token for the hero (migration 0003)
 }
 export interface Costume { slug: string; label: string; emoji: string; sort: number }
 export interface Stats { coins_launched: number; costumes_summoned: number }
@@ -21,6 +22,7 @@ export async function fetchSettings(): Promise<PublicSettings> {
     costume_fee_lamports: Number(s.costume_fee_lamports), launch_fee_lamports: Number(s.launch_fee_lamports),
     max_dev_buy_lamports: Number(s.max_dev_buy_lamports), generations_paused: s.generations_paused === true,
     launches_paused: s.launches_paused === true, pause_reason: (s.pause_reason as PublicSettings["pause_reason"]) ?? null,
+    site_ca: typeof s.site_ca === "string" && s.site_ca ? s.site_ca : null,
   };
 }
 

@@ -8,6 +8,7 @@ export interface Settings {
   generations_paused: boolean;
   launches_paused: boolean;
   pause_reason: "admin" | "low_credit" | null; // why costume summoning is paused
+  site_ca: string | null; // SpookPad's own token, shown in the home page's hero; null hides it
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -19,7 +20,11 @@ export const DEFAULT_SETTINGS: Settings = {
   generations_paused: false,
   launches_paused: false,
   pause_reason: null,
+  site_ca: null,
 };
+
+// a Solana address in base58 (no 0, O, I or l)
+export const SOLANA_ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
 type IntKey = "costume_fee_lamports" | "launch_fee_lamports" | "max_dev_buy_lamports" | "max_generations_per_hour";
 const INT_BOUNDS: Record<IntKey, [number, number]> = {
@@ -40,6 +45,7 @@ export function rowToSettings(row: Record<string, unknown>): Settings {
     generations_paused: row.generations_paused === true,
     launches_paused: row.launches_paused === true,
     pause_reason: reason === "admin" || reason === "low_credit" ? reason : null,
+    site_ca: typeof row.site_ca === "string" && row.site_ca ? row.site_ca : null,
   };
 }
 
@@ -59,6 +65,10 @@ export function validateSettingsPatch(current: Settings, patch: unknown):
     } else if (k === "generations_paused" || k === "launches_paused") {
       if (typeof v !== "boolean") errors.push(`${k} must be true or false.`);
       else if (v !== current[k]) changed[k] = v;
+    } else if (k === "site_ca") {
+      const ca = v === null ? "" : typeof v === "string" ? v.trim() : undefined;
+      if (ca === undefined || (ca !== "" && !SOLANA_ADDRESS.test(ca))) errors.push("site_ca must be a Solana token address (32-44 letters and digits), or empty.");
+      else if ((ca || null) !== current.site_ca) changed[k] = ca || null;
     } else {
       errors.push(`Unknown setting: ${k}.`);
     }
