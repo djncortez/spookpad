@@ -107,3 +107,6 @@ body { overflow-x: clip; }
   /* Reveal's gsap inline styles must not hide or move anything */
   .reveal { opacity: 1 !important; transform: none !important; visibility: visible !important; }
 }
+
+/* Netlify injects a "Powered by Netlify" badge (an iframe) into every page; keep it off the site. */
+#nl-badge-frame { display: none !important; }

@@ -11,6 +11,7 @@ const display = Creepster({ subsets: ["latin"], weight: "400", variable: "--font
 const sans = Space_Grotesk({ subsets: ["latin"], weight: ["400", "500", "700"], variable: "--font-grotesk" });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://spookpad.xyz"), // the icons in app/ (icon.png, apple-icon.png, favicon.ico) resolve against it
   title: "SpookPad",
   description: "Launch your meme coin on pump.fun. Every coin wears a Halloween costume, stitched on by AI.",
   openGraph: { siteName: "SpookPad", type: "website" },
